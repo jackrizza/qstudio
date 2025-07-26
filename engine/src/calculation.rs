@@ -51,6 +51,51 @@ impl Calculation {
                     series_vec.into_iter().map(|s| s.into_column()).collect();
                 DataFrame::new(columns).map_err(|e| format!("Failed to create DataFrame: {}", e))
             }
+            Keyword::Sma => {
+                let period = 14; // Default to 14 if not specified
+                let mut sma_values = Vec::new();
+                for i in 0..data[0].len() {
+                    if i < period - 1 {
+                        sma_values.push(None); // Not enough data for SMA
+                    } else {
+                        let sum: f64 = data[0][i - period + 1..=i].iter().filter_map(|&x| x).sum();
+                        let sma = sum / period as f64;
+                        sma_values.push(Some(sma));
+                    }
+                }
+                let name = self.0.alias.clone();
+                let series = Series::new(name.into(), sma_values);
+                DataFrame::new(vec![series.into_column()])
+                    .map_err(|e| format!("Failed to create DataFrame: {}", e))
+            }
+            Keyword::Volatility => {
+                let period = 14; // Default to 14 if not specified
+                let mut volatility_values = Vec::new();
+                for i in 0..data[0].len() {
+                    if i < period - 1 {
+                        volatility_values.push(None); // Not enough data for volatility
+                    } else {
+                        let mean: f64 = data[0][i - period + 1..=i]
+                            .iter()
+                            .filter_map(|&x| x)
+                            .sum::<f64>()
+                            / period as f64;
+
+                        let variance: f64 = data[0][i - period + 1..=i]
+                            .iter()
+                            .filter_map(|&x| x)
+                            .map(|x| (x - mean).powi(2))
+                            .sum::<f64>()
+                            / period as f64;
+
+                        let volatility = variance.sqrt();
+                        volatility_values.push(Some(volatility));
+                    }
+                }
+                let series = Series::new(self.0.alias.clone().into(), volatility_values);
+                DataFrame::new(vec![series.into_column()])
+                    .map_err(|e| format!("Failed to create DataFrame: {}", e))
+            }
             _ => Err(format!("Unsupported operation: {:?}", self.0.operation)),
         }
     }

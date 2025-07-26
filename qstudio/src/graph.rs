@@ -1,7 +1,6 @@
 use egui::{Color32, Stroke, TextStyle};
 use egui_plot::{
-    uniform_grid_spacer, Bar, BarChart, BoxElem, BoxPlot, Line, Plot, PlotPoints,
-    Legend, Corner,
+    uniform_grid_spacer, Bar, BarChart, BoxElem, BoxPlot, Corner, Legend, Line, Plot, PlotPoints,
 };
 use engine::parser::{DrawType, Graph};
 
@@ -33,13 +32,13 @@ impl DrawGraph {
         };
 
         Plot::new(&self.0.title)
-            // .show_grid([true, true])
+            .show_grid([false, false])
             // .grid_spacing((step_size as f32)..=(step_size as f32))
             // .x_grid_spacer(uniform_grid_spacer(step))
             // .y_grid_spacer(uniform_grid_spacer(step))
-            // .x_axis_label("Time")
-            // .y_axis_label("Price")
-            // .show_axes([true, true]) // Show/hide axis lines and labels
+            .x_axis_label("Time")
+            .y_axis_label("Price")
+            .show_axes([true, true]) // Show/hide axis lines and labels
             .legend(
                 Legend::default()
                     .position(Corner::RightTop)
@@ -66,59 +65,65 @@ impl DrawGraph {
                             plot_ui.line(Line::new("line", plot_points));
                         }
 
-                        DrawType::Bar(bars) => {
-                            let bar_chart = BarChart::new(
-                                "bar_chart",
-                                self.0
+                        DrawType::Bar(ys) => {
+                            let mut bars = Vec::new();
+                            for (i, y) in ys.iter().enumerate() {
+                                let arg = self
+                                    .0
                                     .axis_labels
-                                    .iter()
-                                    .zip(bars)
-                                    .enumerate()
-                                    .map(|(i, (label, (open, close)))| {
-                                        let x = label.parse::<f64>().unwrap_or(i as f64);
-                                        Bar::new(x, close - open).width(0.5)
-                                    })
-                                    .collect(),
-                            )
-                            .color(Color32::LIGHT_BLUE);
+                                    .get(i)
+                                    .and_then(|s| s.parse::<f64>().ok())
+                                    .unwrap_or(i as f64); // fallback to index if labels missing
+                                // println!("Bar: x = {}, y = {}", arg, y);
+                                let bar = Bar::new(arg, *y)
+                                    .fill(Color32::BLUE)
+                                    .stroke(Stroke::new(1.0, Color32::BLUE))
+                                    .width(10.0); // Adjust width for visibility
+                                bars.push(bar);
+                            }
+
+                            let bar_chart = BarChart::new("bar_chart", bars);
+                            // .width(10.0); // Try wide first to verify visibility
+
                             plot_ui.bar_chart(bar_chart);
                         }
 
                         DrawType::Candlestick(candles) => {
-                            // BoxPlot approach
                             let elems: Vec<BoxElem> = candles
                                 .iter()
                                 .enumerate()
                                 .filter_map(|(i, &(open, high, low, close))| {
-                                    if let Some(label) = self.0.axis_labels.get(i) {
-                                        if let Ok(x) = label.parse::<f64>() {
-                                            let color = if close >= open {
-                                                Color32::GREEN
-                                            } else {
-                                                Color32::RED
-                                            };
-                                            Some(BoxElem {
-                                                name: format!("Candle {}", i),
-                                                orientation: egui_plot::Orientation::Vertical,
-                                                argument: x,
-                                                spread: egui_plot::BoxSpread::new(
-                                                    low,
-                                                    high,
-                                                    open,
-                                                    (open + close) / 2.0,
-                                                    close,
-                                                ),
-                                                box_width: 0.8,
-                                                whisker_width: 0.2,
-                                                fill: color,
-                                                stroke: Stroke::new(1.0, Color32::BLACK),
-                                            })
-                                        } else {
-                                            None
-                                        }
+                                    let label = self.0.axis_labels.get(i)?;
+                                    let x = label.parse::<f64>().ok()?;
+
+                                    let color = if close >= open {
+                                        Color32::GREEN
                                     } else {
-                                        None
-                                    }
+                                        Color32::RED
+                                    };
+
+                                    let (lower_box, upper_box) = if open <= close {
+                                        (open, close)
+                                    } else {
+                                        (close, open)
+                                    };
+
+                                    Some(BoxElem {
+                                        name: format!("Candle {}", i),
+                                        orientation: egui_plot::Orientation::Vertical,
+                                        argument: x,
+                                        spread: egui_plot::BoxSpread::new(
+                                            low,       // lower whisker
+                                            high,      // upper whisker
+                                            lower_box, // box bottom
+                                            (open + close) / 2.0,
+                                            upper_box, // box top
+                                        ),
+                                        box_width: 4.0,
+                                        whisker_width: 2.0,
+                                        fill: color,
+                                        stroke: Stroke::new(1.0, color),
+                                    })
                                 })
                                 .collect();
 

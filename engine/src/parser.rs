@@ -86,7 +86,7 @@ pub struct GraphSection {
 #[derive(Debug, Clone)]
 pub enum DrawCommand {
     Line(Vec<String>),
-    Bar(Vec<String>), // open, close
+    Bar(String),
     Candle {
         open: String,
         high: String,
@@ -98,7 +98,7 @@ pub enum DrawCommand {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DrawType {
     Line(Vec<f64>),                         // single series for line
-    Bar(Vec<(f64, f64)>),                   // (open, close) pairs for bar
+    Bar(Vec<f64>),                          // (open, close) pairs for bar
     Candlestick(Vec<(f64, f64, f64, f64)>), // (open, high, low, close) for candlestick
 }
 
@@ -366,12 +366,17 @@ impl<'a> Parser<'a> {
         let op_tok = self.next_token()?;
         let operation = match op_tok.kind {
             TokenKind::Keyword(
-                k @ (Keyword::Difference | Keyword::Sum | Keyword::Multiply | Keyword::Divide),
+                k @ (Keyword::Difference
+                | Keyword::Sum
+                | Keyword::Multiply
+                | Keyword::Divide
+                | Keyword::Sma
+                | Keyword::Volatility),
             ) => k,
             _ => {
                 return Err(ParseError::expected(
                     &op_tok,
-                    "CALC operation (DIFFERENCE | SUM | MULTIPLY | DIVIDE)",
+                    "CALC operation (DIFFERENCE | SUM | MULTIPLY | DIVIDE | SMA | VOLATILITY)",
                 ))
             }
         };
@@ -400,10 +405,8 @@ impl<'a> Parser<'a> {
                     }
                     TokenKind::Keyword(Keyword::Bar) => {
                         self.next_token()?; // consume BAR
-                        let open = self.expect_identifier()?;
-                        self._expect_comma_or_newline()?;
-                        let close = self.expect_identifier()?;
-                        commands.push(DrawCommand::Bar(vec![open, close]));
+                        let y = self.expect_identifier()?;
+                        commands.push(DrawCommand::Bar(y));
                     }
                     TokenKind::Keyword(Keyword::Candle) => {
                         self.next_token()?; // consume CANDLE

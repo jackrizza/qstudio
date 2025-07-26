@@ -247,28 +247,16 @@ fn graph_over_data(graph_section: &GraphSection, df: DataFrame) -> Result<Graph,
                 data.push(DrawType::Candlestick(candles));
             }
 
-            DrawCommand::Bar(ys) => {
-                let x = ys
-                    .iter()
-                    .enumerate()
-                    .map(|(i, _)| i as f64)
-                    .collect::<Vec<_>>();
+            DrawCommand::Bar(label) => {
+                let values = df
+                    .column(label)
+                    .map_err(|e| format!("Bar column '{}' missing: {}", label, e))?
+                    .f64()
+                    .map_err(|e| format!("Bar column '{}' not f64: {}", label, e))?
+                    .to_vec();
 
-                let bars: Vec<(f64, f64)> = ys
-                    .iter()
-                    .map(|y| {
-                        let parts: Vec<&str> = y.split(',').collect();
-                        if parts.len() == 2 {
-                            (
-                                parts[0].parse::<f64>().unwrap_or(0.0),
-                                parts[1].parse::<f64>().unwrap_or(0.0),
-                            )
-                        } else {
-                            (0.0, 0.0)
-                        }
-                    })
-                    .collect();
-                data.push(DrawType::Bar(bars));
+                let x: Vec<f64> = (0..values.len()).map(|i| i as f64).collect();
+                data.push(DrawType::Bar(x));
             }
         }
     }

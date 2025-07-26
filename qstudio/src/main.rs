@@ -13,11 +13,14 @@ use polars::frame::DataFrame;
 use polars::prelude::*;
 use rand::distr::Alphanumeric;
 use rand::Rng;
+use core::fmt;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::rc::Rc;
 
-use engine::controllers::Output;    
+use engine::controllers::Output;
 
 fn random_string() -> String {
     rand::thread_rng()
@@ -48,18 +51,21 @@ use std::hash::{Hash, Hasher};
 enum TabKind {
     Code(String),
     Markdown(String),
+    Settings(String),
 }
 
 impl TabKind {
     fn as_str(&self) -> &str {
         match self {
             TabKind::Markdown(s) | TabKind::Code(s) => s,
+            TabKind::Settings(_) => "Settings",
         }
     }
 }
 
 type Tab = TabKind;
 
+#[derive(Debug)]
 struct Code {
     code: String,
     file_path: Option<String>,
@@ -96,10 +102,20 @@ impl Code {
 
 struct MyTabViewer {
     data: HashMap<String, Code>,
+    settings: Rc<RefCell<Settings>>,
+}
+
+impl fmt::Debug for MyTabViewer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MyTabViewer")
+            .field("data", &self.data)
+            .field("settings", &self.settings)
+            .finish()
+    }
 }
 
 impl MyTabViewer {
-    fn new() -> Self {
+    fn new(settings: Rc<RefCell<Settings>>) -> Self {
         let mut hm = HashMap::new();
         hm.insert(
             "0".to_string(),
@@ -109,7 +125,7 @@ impl MyTabViewer {
                 file_name: None,
             },
         );
-        MyTabViewer { data: hm }
+        MyTabViewer { data: hm, settings }
     }
 
     fn new_code_tab(&mut self, key: String, code: String) {
@@ -139,16 +155,37 @@ impl MyTabViewer {
             .code
     }
 
-    fn save_code(&self, key: &str) -> Result<(), String> {
+    fn save_code(&mut self, key: &str) -> Result<(), String> {
         if let Some(code) = self.data.get(key) {
             if let Some(path) = &code.file_path {
                 fs::write(path, &code.code).map_err(|e| e.to_string())
             } else {
-                Err("No file path associated with tab.".to_string())
+                self.save_new_code(key, code.code.clone())
             }
         } else {
             Err("No code found for key.".to_string())
         }
+    }
+
+    fn save_new_code(&mut self, key: &str, code: String) -> Result<(), String> {
+        let save = rfd::FileDialog::new()
+            .add_filter("Quant Query Language", &["qql"])
+            .save_file();
+        let opened_file = self
+            .data
+            .get_mut(key)
+            .ok_or("No opened_file found for key")?;
+        opened_file.file_name = Some(
+            PathBuf::from(save.as_ref().unwrap().as_path())
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        );
+        opened_file.file_path = save.map(|p| p.to_string_lossy().into_owned());
+        fs::write(opened_file.file_path.as_ref().unwrap(), &opened_file.code)
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     fn open_file(&mut self, key: &str, path: &str) -> Result<(), String> {
@@ -177,6 +214,9 @@ impl TabViewer for MyTabViewer {
     fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
         if tab.as_str() == "0" {
             return WidgetText::from("Welcome to Q Studio");
+        }
+        if tab.as_str() == "1" {
+            return WidgetText::from("Settings");
         }
         let s = self
             .data
@@ -212,7 +252,7 @@ impl TabViewer for MyTabViewer {
                     } else {
                         ColorTheme::GITHUB_LIGHT
                     })
-                    .with_syntax(Syntax::sql())
+                    .with_syntax(Syntax::qql())
                     .with_numlines(true)
                     .show(ui, self.mut_code(key.clone()));
             }
@@ -223,6 +263,12 @@ impl TabViewer for MyTabViewer {
                     let md = CommonMarkViewer::new();
                     md.show(ui, &mut cache, text);
                 });
+            }
+            TabKind::Settings(_) => {
+                ui.label("Settings");
+                ui.separator();
+                let mut settings = self.settings.borrow_mut();
+                ui.checkbox(&mut settings.dark_mode, "Enable Dark Mode");
             }
         }
     }
@@ -242,27 +288,46 @@ impl Default for QueryResult {
     }
 }
 
+#[derive(Debug)]
+pub struct Settings {
+    pub dark_mode: bool,
+}
+
 pub struct QStudio {
     dock_state: DockState<Tab>,
     tab_viewer: MyTabViewer,
     query_result: QueryResult,
     debug_window: bool,
+    settings: Rc<RefCell<Settings>>,
 }
 
 impl Default for QStudio {
     fn default() -> Self {
+        let settings = Rc::new(RefCell::new(Settings { dark_mode: true }));
+
         let tabs = [TabKind::Markdown("0".to_string())].into_iter().collect();
+
         QStudio {
             dock_state: DockState::new(tabs),
-            tab_viewer: MyTabViewer::new(),
+            tab_viewer: MyTabViewer::new(settings.clone()),
             query_result: QueryResult::default(),
-            debug_window: true,
+            debug_window: false,
+            settings,
         }
     }
 }
 
 impl eframe::App for QStudio {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // Apply visual style based on dark_mode setting
+        let dark_mode = self.settings.borrow().dark_mode;
+        let visuals = if dark_mode {
+            egui::Visuals::dark()
+        } else {
+            egui::Visuals::light()
+        };
+        ctx.set_visuals(visuals);
+
         // Handle Command+R (Run Query)
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::R)) {
             self.run_query();
@@ -330,6 +395,9 @@ impl QStudio {
                         ui.collapsing("Dock State", |ui| {
                             ui.label(format!("{:#?}", self.dock_state));
                         });
+                        ui.collapsing("Tab Viewer Data", |ui| {
+                            ui.label(format!("{:#?}", self.tab_viewer.data));
+                        });
                         ui.collapsing("Query Result", |ui| {
                             ui.label(format!("{:#?}", self.query_result));
                         });
@@ -386,13 +454,15 @@ impl QStudio {
                         }
                     });
 
-                    ui.menu_button("Themes", |ui| {
-                        if ui.button("Toggle Dark Mode").clicked() {
-                            ctx.set_visuals(if ctx.style().visuals.dark_mode {
-                                egui::Visuals::light()
-                            } else {
-                                egui::Visuals::dark()
-                            });
+                    ui.menu_button("View", |ui| {
+                        if ui.button("Cheat Sheet").clicked() {
+                            self.dock_state
+                                .push_to_focused_leaf(TabKind::Markdown("0".to_string()));
+                        }
+                        ui.separator();
+                        if ui.button("Settings").clicked() {
+                            self.dock_state
+                                .push_to_focused_leaf(TabKind::Settings("1".to_string()));
                         }
                     });
                 });
@@ -461,7 +531,6 @@ impl QStudio {
                 }
             }
             QueryResult::Graph(df) => {
-                ui.label("Query Result: Graph");
                 // Placeholder for graph rendering logic
                 graph::DrawGraph::new(df.clone()).draw(ui);
             }
