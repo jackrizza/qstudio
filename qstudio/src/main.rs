@@ -3,6 +3,7 @@
 
 mod graph;
 
+use core::fmt;
 use eframe::egui;
 use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
 use egui_commonmark::*;
@@ -13,12 +14,14 @@ use polars::frame::DataFrame;
 use polars::prelude::*;
 use rand::distr::Alphanumeric;
 use rand::Rng;
-use core::fmt;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::rc::Rc;
+
+use theme::{GITHUB_DARK, GITHUB_LIGHT};
+use theme::set_theme;
 
 use engine::controllers::Output;
 
@@ -320,13 +323,18 @@ impl Default for QStudio {
 impl eframe::App for QStudio {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         // Apply visual style based on dark_mode setting
-        let dark_mode = self.settings.borrow().dark_mode;
-        let visuals = if dark_mode {
-            egui::Visuals::dark()
+        // let dark_mode = self.settings.borrow().dark_mode;
+        // let visuals = if dark_mode {
+        //     egui::Visuals::dark()
+        // } else {
+        //     egui::Visuals::light()
+        // };
+        // ctx.set_visuals(visuals);
+        set_theme(ctx, if self.settings.borrow().dark_mode {
+            GITHUB_DARK
         } else {
-            egui::Visuals::light()
-        };
-        ctx.set_visuals(visuals);
+            GITHUB_LIGHT
+        });
 
         // Handle Command+R (Run Query)
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::R)) {

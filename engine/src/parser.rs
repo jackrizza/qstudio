@@ -35,7 +35,6 @@ use crate::lexer::{Keyword, Token, TokenKind}; // assuming you expose Lexer in l
 pub struct Query {
     pub model: ModelSection,
     pub actions: ActionSection,
-    pub graph: Option<GraphSection>, // optional graph section
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,13 +60,13 @@ pub enum TimeSpec {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ShowType {
     Table,
-    Graph,
+    Graph(GraphSection),
 }
 
 #[derive(Debug, Clone)]
 pub struct ActionSection {
     pub fields: Vec<String>,
-    pub calc: Option<Calc>,
+    pub calc: Option<Vec<Calc>>,
     pub show: ShowType, // always true if present
 }
 
@@ -78,16 +77,17 @@ pub struct Calc {
     pub alias: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphSection {
     pub commands: Vec<DrawCommand>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DrawCommand {
-    Line(Vec<String>),
-    Bar(String),
+    Line(String, Vec<String>),
+    Bar(String, String),
     Candle {
+        name: String,
         open: String,
         high: String,
         low: String,
@@ -97,9 +97,19 @@ pub enum DrawCommand {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DrawType {
-    Line(Vec<f64>),                         // single series for line
-    Bar(Vec<f64>),                          // (open, close) pairs for bar
-    Candlestick(Vec<(f64, f64, f64, f64)>), // (open, high, low, close) for candlestick
+    Line(String, Vec<f64>),                         // single series for line
+    Bar(String, Vec<f64>),                          // (open, close) pairs for bar
+    Candlestick(String, Vec<(f64, f64, f64, f64)>), // (open, high, low, close) for candlestick
+}
+
+impl DrawType {
+    pub fn len(&self) -> usize {
+        match self {
+            DrawType::Line(_, values) => values.len(),
+            DrawType::Bar(_, values) => values.len() / 2,
+            DrawType::Candlestick(_, candles) => candles.len(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -107,6 +117,28 @@ pub struct Graph {
     pub data: Vec<DrawType>,
     pub axis_labels: Vec<String>,
     pub title: String,
+}
+
+impl Graph {
+    pub fn max(&self) -> f64 {
+        self.data.iter().fold(0.0, |max, dt| match dt {
+            DrawType::Line(_, values) => values.iter().cloned().fold(max, f64::max),
+            DrawType::Bar(_, values) => values.iter().cloned().fold(max, f64::max),
+            DrawType::Candlestick(_, candles) => {
+                candles.iter().map(|&(o, h, l, c)| h).fold(max, f64::max)
+            }
+        })
+    }
+
+    pub fn min(&self) -> f64 {
+        self.data.iter().fold(f64::INFINITY, |min, dt| match dt {
+            DrawType::Line(_, values) => values.iter().cloned().fold(min, f64::min),
+            DrawType::Bar(_, values) => values.iter().cloned().fold(min, f64::min),
+            DrawType::Candlestick(_, candles) => {
+                candles.iter().map(|&(o, h, l, c)| l).fold(min, f64::min)
+            }
+        })
+    }
 }
 
 /* ------------------------------- ParseError ------------------------------ */
@@ -167,12 +199,7 @@ impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Result<Query, ParseError> {
         let model = self.parse_model_section()?;
         let actions = self.parse_action_section()?;
-        let graph = self.parse_graph_section().ok(); // graph section is optional
-        Ok(Query {
-            model,
-            actions,
-            graph,
-        })
+        Ok(Query { model, actions })
     }
 
     /* --------------------------- token helpers -------------------------- */
@@ -318,13 +345,18 @@ impl<'a> Parser<'a> {
         let fields = self.parse_field_list()?;
         self.consume_newlines()?;
 
-        // optional CALC
-        let calc = match self.peek_token() {
-            Some(Ok(tok)) if matches!(tok.kind, TokenKind::Keyword(Keyword::Calc)) => {
-                Some(self.parse_calc()?)
+        // Parse zero or more CALC blocks
+        let mut calcs = Vec::new();
+        while let Some(Ok(tok)) = self.peek_token() {
+            if let TokenKind::Keyword(Keyword::Calc) = tok.kind {
+                calcs.push(self.parse_calc()?);
+                self.consume_newlines()?;
+            } else {
+                break;
             }
-            _ => None,
-        };
+        }
+
+        let calc = if calcs.is_empty() { None } else { Some(calcs) };
         self.consume_newlines()?;
 
         // SHOW (required)
@@ -336,7 +368,10 @@ impl<'a> Parser<'a> {
             Token {
                 kind: TokenKind::Keyword(Keyword::Graph),
                 ..
-            } => ShowType::Graph,
+            } => {
+                let graph = self.parse_graph_section()?; // graph section is optional
+                ShowType::Graph(graph)
+            }
             tok => return Err(ParseError::expected(&tok, "SHOWTABLE or GRAPH")),
         };
 
@@ -401,12 +436,14 @@ impl<'a> Parser<'a> {
                     TokenKind::Keyword(Keyword::Line) => {
                         self.next_token()?; // consume LINE
                         let fields = self.parse_field_list()?;
-                        commands.push(DrawCommand::Line(fields));
+                        for field in &fields {
+                            commands.push(DrawCommand::Line(field.clone(), fields.clone()));
+                        }
                     }
                     TokenKind::Keyword(Keyword::Bar) => {
                         self.next_token()?; // consume BAR
                         let y = self.expect_identifier()?;
-                        commands.push(DrawCommand::Bar(y));
+                        commands.push(DrawCommand::Bar(y.clone(), y.clone()));
                     }
                     TokenKind::Keyword(Keyword::Candle) => {
                         self.next_token()?; // consume CANDLE
@@ -418,6 +455,7 @@ impl<'a> Parser<'a> {
                         self._expect_comma_or_newline()?;
                         let close = self.expect_identifier()?;
                         commands.push(DrawCommand::Candle {
+                            name: "Candle".to_string(),
                             open,
                             high,
                             low,
@@ -458,7 +496,7 @@ mod tests {
             FROM 20220101 TO 20221231
             PULL field1, field2, field3
             CALC field1, field2 DIFFERENCE CALLED diff_field
-            SHOW
+            SHOWTABLE
         "#;
 
         let query = parse(&src.replace("\n", " ")).unwrap();
@@ -474,6 +512,25 @@ mod tests {
         );
         assert_eq!(query.actions.fields, vec!["field1", "field2", "field3"]);
         assert!(query.actions.calc.is_some());
-        assert_eq!(query.actions.calc.unwrap().operation, Keyword::Difference);
+        assert_eq!(
+            query.actions.calc.unwrap()[0].operation,
+            Keyword::Difference
+        );
+    }
+
+    #[test]
+    fn test_multiple_calcs() {
+        let src = r#"
+            HISTORICAL 
+            TICKER aapl
+            FROM 20220101 TO 20221231
+            PULL field1, field2
+            CALC field1, field2 DIFFERENCE CALLED diff_field
+            CALC field1, field2 SUM CALLED sum_field
+            SHOWTABLE
+        "#;
+
+        let query = parse(&src.replace("\n", " ")).unwrap();
+        assert_eq!(query.actions.calc.unwrap().len(), 2);
     }
 }

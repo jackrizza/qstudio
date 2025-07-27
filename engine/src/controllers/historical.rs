@@ -37,17 +37,16 @@ impl<'a> HistoricalController<'a> {
                 Ok(data_frame) => Ok(Output::DataFrame(data_frame)),
                 Err(e) => Err(format!("Failed to process action: {}", e)),
             }
-        } else if self.query.graph.is_none() {
-            return Err("Graph section is missing".into());
-        } else {
-            let gs = self.query.graph.as_ref().unwrap();
-            let graph = graph_over_data(gs, action?);
+        } else if let ShowType::Graph(ref graph_section) = self.query.actions.show {
+            let graph = graph_over_data(graph_section, action?);
             let graph = match graph {
                 Ok(g) => g,
                 Err(e) => return Err(format!("Failed to create graph: {}", e)),
             };
 
             return Ok(Output::Graph(graph));
+        } else {
+            Err("No valid action specified".to_string())
         }
     }
 }
@@ -116,51 +115,38 @@ async fn pull_data(model: &ModelSection) -> Result<DataFrame, String> {
     Ok(df)
 }
 
-fn action_over_data(action: &ActionSection, df: DataFrame) -> Result<DataFrame, String> {
-    // Placeholder for actual action logic
-
+pub fn action_over_data(action: &ActionSection, df: DataFrame) -> Result<DataFrame, String> {
     let field = action.fields.clone();
-
-    let calc = match &action.calc {
-        Some(calc) => calc,
-        None => {
-            let timestamps = df
-                .column("timestamp")
-                .map_err(|e| format!("Failed to get timestamp column: {}", e))?
-                .clone();
-            let selected_fields = df
-                .select(field.iter().map(|s| s.as_str()).collect::<Vec<_>>())
-                .map_err(|e| format!("Failed to select fields: {}", e))?;
-
-            let mut columns = vec![timestamps];
-            columns.extend_from_slice(selected_fields.get_columns());
-            let concacted = DataFrame::new(columns)
-                .map_err(|e| format!("Failed to create DataFrame: {}", e))?;
-            return Ok(concacted); // No calculation, just return the concatenated fields
-        } // No calculation, just return the DataFrame
-    };
-
-    let calculation = Calculation::new(calc.clone());
-    let completed = calculation.calculate(&df)?;
 
     let timestamp = df
         .column("timestamp")
         .map_err(|e| format!("Failed to get timestamp column: {}", e))?
         .clone();
 
-    // 2. Get selected fields from df (self.field)
     let selected_fields = df
         .select(field.iter().map(|s| s.as_str()).collect::<Vec<_>>())
         .map_err(|e| format!("Failed to select fields: {}", e))?;
 
-    // 3. Concatenate timestamp, selected fields, and new_df
     let mut columns = vec![timestamp];
     columns.extend_from_slice(selected_fields.get_columns());
-    columns.extend_from_slice(completed.get_columns());
+
+    // If calc is None, just return the timestamp + selected fields
+    let Some(calcs) = &action.calc else {
+        let result_df =
+            DataFrame::new(columns).map_err(|e| format!("Failed to create DataFrame: {}", e))?;
+        return Ok(result_df);
+    };
+
+    // Otherwise, run each Calc and append the results
+    for calc in calcs {
+        let calculation = Calculation::new(calc.clone());
+
+        let calc_df = calculation.calculate(&df)?;
+        columns.extend_from_slice(calc_df.get_columns());
+    }
 
     let result_df =
         DataFrame::new(columns).map_err(|e| format!("Failed to create DataFrame: {}", e))?;
-
     Ok(result_df)
 }
 
@@ -181,7 +167,7 @@ fn graph_over_data(graph_section: &GraphSection, df: DataFrame) -> Result<Graph,
 
     for command in &graph_section.commands {
         match command {
-            DrawCommand::Line(fields) => {
+            DrawCommand::Line(name, fields) => {
                 for field in fields {
                     let series = df
                         .column(field)
@@ -194,11 +180,12 @@ fn graph_over_data(graph_section: &GraphSection, df: DataFrame) -> Result<Graph,
                         .iter()
                         .map(|v| v.unwrap_or(0.0))
                         .collect::<Vec<_>>();
-                    data.push(DrawType::Line(values));
+                    data.push(DrawType::Line(name.clone(), values));
                 }
             }
 
             DrawCommand::Candle {
+                name,
                 open,
                 high,
                 low,
@@ -244,10 +231,10 @@ fn graph_over_data(graph_section: &GraphSection, df: DataFrame) -> Result<Graph,
                     })
                     .collect();
 
-                data.push(DrawType::Candlestick(candles));
+                data.push(DrawType::Candlestick("Candles".to_string(), candles));
             }
 
-            DrawCommand::Bar(label) => {
+            DrawCommand::Bar(name, label) => {
                 let values = df
                     .column(label)
                     .map_err(|e| format!("Bar column '{}' missing: {}", label, e))?
@@ -256,7 +243,7 @@ fn graph_over_data(graph_section: &GraphSection, df: DataFrame) -> Result<Graph,
                     .to_vec();
 
                 let x: Vec<f64> = (0..values.len()).map(|i| i as f64).collect();
-                data.push(DrawType::Bar(x));
+                data.push(DrawType::Bar(name.clone(), x));
             }
         }
     }

@@ -19,7 +19,7 @@ pub struct Engine(Query);
 fn remove_comments(src: &str) -> String {
     src.lines()
         .filter(|line| !line.trim().starts_with("--"))
-        .map(|line| line.trim())
+        // .map(|line| line.trim())
         .collect::<Vec<&str>>()
         .join(" ")
 }
@@ -63,12 +63,12 @@ mod tests {
             FROM 20220101 TO 20221231
             PULL open, high, low, close
             CALC open,close DIFFERENCE CALLED diff_field
-            SHOW
+            SHOWTABLE
         "#;
 
         let mut engine = Engine::new(&src.replace("\n", " ")).unwrap();
         let result = engine.run().await;
-        println!("{:#?}", result);
+        // println!("{:#?}", result);
         assert!(result.is_ok());
     }
 }

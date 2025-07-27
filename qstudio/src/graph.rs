@@ -33,23 +33,22 @@ impl DrawGraph {
 
         Plot::new(&self.0.title)
             .show_grid([false, false])
-            // .grid_spacing((step_size as f32)..=(step_size as f32))
-            // .x_grid_spacer(uniform_grid_spacer(step))
-            // .y_grid_spacer(uniform_grid_spacer(step))
+            .allow_double_click_reset(true)
             .x_axis_label("Time")
             .y_axis_label("Price")
+            .default_y_bounds(self.0.min() - 25.0, self.0.max() + 25.0)
             .show_axes([true, true]) // Show/hide axis lines and labels
             .legend(
                 Legend::default()
                     .position(Corner::RightTop)
-                    .text_style(TextStyle::Small)
+                    .text_style(TextStyle::Body)
                     .background_alpha(0.5)
                     .follow_insertion_order(true),
             )
             .show(ui, |plot_ui| {
                 for draw_type in &self.0.data {
                     match draw_type {
-                        DrawType::Line(values) => {
+                        DrawType::Line(name, values) => {
                             let plot_points: PlotPoints = self
                                 .0
                                 .axis_labels
@@ -62,10 +61,10 @@ impl DrawGraph {
                                 })
                                 .collect();
 
-                            plot_ui.line(Line::new("line", plot_points));
+                            plot_ui.line(Line::new(name, plot_points));
                         }
 
-                        DrawType::Bar(ys) => {
+                        DrawType::Bar(name, ys) => {
                             let mut bars = Vec::new();
                             for (i, y) in ys.iter().enumerate() {
                                 let arg = self
@@ -74,7 +73,7 @@ impl DrawGraph {
                                     .get(i)
                                     .and_then(|s| s.parse::<f64>().ok())
                                     .unwrap_or(i as f64); // fallback to index if labels missing
-                                // println!("Bar: x = {}, y = {}", arg, y);
+                                                          // println!("Bar: x = {}, y = {}", arg, y);
                                 let bar = Bar::new(arg, *y)
                                     .fill(Color32::BLUE)
                                     .stroke(Stroke::new(1.0, Color32::BLUE))
@@ -82,13 +81,13 @@ impl DrawGraph {
                                 bars.push(bar);
                             }
 
-                            let bar_chart = BarChart::new("bar_chart", bars);
+                            let bar_chart = BarChart::new(name, bars);
                             // .width(10.0); // Try wide first to verify visibility
 
                             plot_ui.bar_chart(bar_chart);
                         }
 
-                        DrawType::Candlestick(candles) => {
+                        DrawType::Candlestick(name, candles) => {
                             let elems: Vec<BoxElem> = candles
                                 .iter()
                                 .enumerate()
@@ -127,7 +126,7 @@ impl DrawGraph {
                                 })
                                 .collect();
 
-                            plot_ui.box_plot(BoxPlot::new("candlestick", elems));
+                            plot_ui.box_plot(BoxPlot::new(name, elems));
                         }
                     }
                 }

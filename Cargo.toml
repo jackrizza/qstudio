@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["engine", "qstudio"]
+members = [ "crates/theme","engine", "qstudio"]
 
 [workspace.package]
 edition = "2021"

@@ -55,14 +55,24 @@ impl Calculation {
                 let period = 14; // Default to 14 if not specified
                 let mut sma_values = Vec::new();
                 for i in 0..data[0].len() {
-                    if i < period - 1 {
+                    if i + 1 < period {
                         sma_values.push(None); // Not enough data for SMA
                     } else {
-                        let sum: f64 = data[0][i - period + 1..=i].iter().filter_map(|&x| x).sum();
+                        let start = i + 1 - period;
+                        let sum: f64 = data[0][start..=i].iter().filter_map(|&x| x).sum();
                         let sma = sum / period as f64;
                         sma_values.push(Some(sma));
                     }
                 }
+                // Shift the first [0..period] elements to the end of the array
+                let mut shifted_sma_values = sma_values;
+                let front = shifted_sma_values.drain(0..period/2).collect::<Vec<_>>();
+                shifted_sma_values.extend(front);
+
+                let sma_values = shifted_sma_values
+                    .into_iter()
+                    .map(|x| x.unwrap_or(0.0)) // Replace None with 0.0 for consistency
+                    .collect::<Vec<f64>>();
                 let name = self.0.alias.clone();
                 let series = Series::new(name.into(), sma_values);
                 DataFrame::new(vec![series.into_column()])
