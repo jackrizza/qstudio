@@ -26,7 +26,7 @@ pub enum Keyword {
     Line,
     Candle,
     Bar,
-    Comma
+    Comma,
 }
 
 impl Keyword {
@@ -58,8 +58,6 @@ impl Keyword {
             _ => None,
         }
     }
-
-    
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -72,6 +70,7 @@ pub enum TokenKind {
     Comma,
     Newline,
     EOF,
+    Comment(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -133,7 +132,11 @@ impl<'a> Lexer<'a> {
         }
         if buf.len() == 8 && buf.chars().all(|c| c.is_ascii_digit()) {
             TokenKind::Literal(buf)
-        } else if buf.chars().next_back().map(|c| c.is_ascii_alphabetic()).unwrap_or(false)
+        } else if buf
+            .chars()
+            .next_back()
+            .map(|c| c.is_ascii_alphabetic())
+            .unwrap_or(false)
             && buf[..buf.len() - 1].chars().all(|c| c.is_ascii_digit())
             && matches!(buf.chars().last().unwrap(), 's' | 'm' | 'h' | 'd')
         {
@@ -160,6 +163,36 @@ impl<'a> Lexer<'a> {
 
         let line = self.current_line;
         let column = self.current_col + 1;
+
+        // If we see a '-', check for comment
+        if let Some('-') = self._peek() {
+            self.advance(); // consume first '-'
+            if let Some('-') = self._peek() {
+                self.advance(); // consume second '-'
+
+                let mut comment = String::new();
+                while let Some(&c) = self.input.peek() {
+                    if c == '\n' {
+                        break;
+                    }
+                    comment.push(c);
+                    self.advance();
+                }
+
+                return Ok(Token {
+                    kind: TokenKind::Comment(comment.trim_end().to_string()),
+                    line,
+                    column,
+                });
+            } else {
+                // Not a comment, return error or allow single '-' if needed
+                return Err(LexError {
+                    message: "Unexpected single '-'".to_string(),
+                    line,
+                    column,
+                });
+            }
+        }
 
         if let Some(c) = self.advance() {
             match c {
@@ -212,11 +245,40 @@ mod test {
     fn test_lexer() {
         let input = "LIVE HISTORICAL FUNDAMENTAL TICKER aapl";
         let mut lexer = Lexer::new(input);
-        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Keyword(Keyword::Live));
-        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Keyword(Keyword::Historical));
-        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Keyword(Keyword::Fundamental));
-        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Keyword(Keyword::Ticker));
-        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Identifier("aapl".to_string()));
+        assert_eq!(
+            lexer.next_token().unwrap().kind,
+            TokenKind::Keyword(Keyword::Live)
+        );
+        assert_eq!(
+            lexer.next_token().unwrap().kind,
+            TokenKind::Keyword(Keyword::Historical)
+        );
+        assert_eq!(
+            lexer.next_token().unwrap().kind,
+            TokenKind::Keyword(Keyword::Fundamental)
+        );
+        assert_eq!(
+            lexer.next_token().unwrap().kind,
+            TokenKind::Keyword(Keyword::Ticker)
+        );
+        assert_eq!(
+            lexer.next_token().unwrap().kind,
+            TokenKind::Identifier("aapl".to_string())
+        );
         assert_eq!(lexer.next_token().unwrap().kind, TokenKind::EOF);
+    }
+    #[test]
+    fn test_comment_lexing() {
+        let input = "-- this is a comment\nTICKER AAPL";
+        let mut lexer = Lexer::new(input);
+        assert_eq!(
+            lexer.next_token().unwrap().kind,
+            TokenKind::Comment("this is a comment".to_string())
+        );
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Newline);
+        assert_eq!(
+            lexer.next_token().unwrap().kind,
+            TokenKind::Keyword(Keyword::Ticker)
+        );
     }
 }

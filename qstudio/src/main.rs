@@ -260,7 +260,7 @@ impl TabViewer for MyTabViewer {
                     .show(ui, self.mut_code(key.clone()));
             }
             TabKind::Markdown(_) => {
-                let text = include_str!("../../readme.md");
+                let text = include_str!("../../qql.md");
                 let mut cache = CommonMarkCache::default();
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     let md = CommonMarkViewer::new();
@@ -353,7 +353,7 @@ impl eframe::App for QStudio {
         }
 
         self.left_panel(ctx);
-        self.right_panel(ctx);
+        self.central_panel(ctx);
 
         if self.debug_window {
             self.debug_window(ctx);
@@ -529,7 +529,7 @@ impl QStudio {
         }
     }
 
-    fn right_panel(&mut self, ctx: &egui::Context) {
+    fn central_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| match &self.query_result {
             QueryResult::Table(df) => {
                 if !df.is_empty() {
@@ -548,9 +548,17 @@ impl QStudio {
             QueryResult::None => {
                 ui.label("No query result available.");
             }
+
+        });
+    }
+
+    fn bottom_panel(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.label("Bottom Panel");
         });
     }
 }
+
 // Helper to render a DataFrame as an egui_extras TableBuilder
 fn show_dataframe_table(ui: &mut egui::Ui, df: &DataFrame) {
     let columns = df.get_columns();

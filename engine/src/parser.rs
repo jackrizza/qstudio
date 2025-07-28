@@ -226,8 +226,14 @@ impl<'a> Parser<'a> {
     fn consume_newlines(&mut self) -> Result<(), ParseError> {
         loop {
             match self.peek_token() {
-                Some(Ok(tok)) if matches!(tok.kind, TokenKind::Newline) => {
-                    self.next_token()?; // consume
+                Some(Ok(tok)) => {
+                    if matches!(tok.kind, TokenKind::Newline) {
+                        self.next_token()?; // consume
+                    } else if matches!(tok.kind, TokenKind::Comment(_)) {
+                        self.next_token()?; // consume comment
+                    } else {
+                        break; // stop on non-newline/non-comment
+                    }
                 }
                 _ => break,
             }
@@ -532,5 +538,22 @@ mod tests {
 
         let query = parse(&src.replace("\n", " ")).unwrap();
         assert_eq!(query.actions.calc.unwrap().len(), 2);
+    }
+    #[test]
+    fn test_comment_handling() {
+        let src = r#"
+        -- This is a comment
+        HISTORICAL
+        -- Another comment
+        TICKER AAPL
+        FROM 20220101 TO 20221231
+        -- PULL starts here
+        PULL field1, field2
+        SHOWTABLE
+    "#;
+
+        let query = parse(src).unwrap();
+        assert_eq!(query.model.ticker, "AAPL");
+        assert_eq!(query.actions.fields, vec!["field1", "field2"]);
     }
 }

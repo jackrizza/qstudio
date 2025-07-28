@@ -21,13 +21,13 @@ fn remove_comments(src: &str) -> String {
         .filter(|line| !line.trim().starts_with("--"))
         // .map(|line| line.trim())
         .collect::<Vec<&str>>()
-        .join(" ")
+        .join("\n")
 }
 
 impl Engine {
     pub fn new(token_stream: &str) -> Result<Self, String> {
-        let stripped = remove_comments(token_stream);
-        match parse(&stripped) {
+        // let stripped = remove_comments(token_stream);
+        match parse(&token_stream) {
             Ok(query) => Ok(Engine(query)),
             Err(e) => {
                 return Err(format!(
