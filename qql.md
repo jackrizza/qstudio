@@ -214,3 +214,16 @@ MACRO basic_metrics
 
 USE basic_metrics
 ```
+
+#### Trading
+
+Only avaliable with a Historical or Live function
+
+```
+TRADE
+  OPTION CALL
+  ENTRY low, low_sma, 0.05 
+  EXIT high, high_sma, 0.05
+  LIMIT 0.1
+  HOLD 14
+```

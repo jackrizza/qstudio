@@ -27,6 +27,16 @@ pub enum Keyword {
     Candle,
     Bar,
     Comma,
+    Trade,
+    OptionCall,
+    OptionPut,
+    Limit,
+    Entry,
+    Exit,
+    Stock,
+    Frame,
+    Hold,
+    Xaxis,
 }
 
 impl Keyword {
@@ -55,6 +65,17 @@ impl Keyword {
             "LINE" => Some(Line),
             "CANDLE" => Some(Candle),
             "BAR" => Some(Bar),
+            "TRADE" => Some(Trade),
+            "OPTIONCALL" => Some(OptionCall),
+            "OPTIONPUT" => Some(OptionPut),
+            "LIMIT" => Some(Limit),
+            "STOCK" => Some(Stock),
+            "ENTRY" => Some(Entry),
+            "EXIT" => Some(Exit),
+            "HOLD" => Some(Hold),
+            "FRAME" => Some(Frame),
+            "XAXIS" => Some(Xaxis),
+
             _ => None,
         }
     }
@@ -273,7 +294,7 @@ mod test {
         let mut lexer = Lexer::new(input);
         assert_eq!(
             lexer.next_token().unwrap().kind,
-            TokenKind::Comment("this is a comment".to_string())
+            TokenKind::Comment(" this is a comment".to_string())
         );
         assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Newline);
         assert_eq!(

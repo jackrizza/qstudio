@@ -2,30 +2,31 @@
 #![allow(rustdoc::missing_crate_level_docs)]
 
 mod graph;
-
-use core::fmt;
 use eframe::egui;
-use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
-use egui_commonmark::*;
-use egui_extras::{Column, TableBuilder};
-use engine::parser::Graph;
+use egui_dock::{DockArea, DockState, OverlayType, Style, TabAddAlign};
 use engine::Engine;
-use polars::frame::DataFrame;
-use polars::prelude::*;
 use rand::distr::Alphanumeric;
 use rand::Rng;
 use std::cell::RefCell;
-use std::collections::HashMap;
-use std::fs;
-use std::path::PathBuf;
 use std::rc::Rc;
-
-use theme::{GITHUB_DARK, GITHUB_LIGHT};
 use theme::set_theme;
+use theme::{GITHUB_DARK, GITHUB_LIGHT};
+
+mod preview;
+use preview::Preview;
+
+mod menubar;
+use menubar::menubar;
+
+mod models;
+use models::{QueryResult, Settings};
+
+mod views;
+use views::editor::{MyTabViewer, Tab, TabKind};
 
 use engine::controllers::Output;
 
-fn random_string() -> String {
+pub fn random_string() -> String {
     rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(7)
@@ -41,267 +42,17 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Q Studio",
         options,
-        Box::new(|cc| Ok(Box::<QStudio>::default())),
+        Box::new(|_cc| Ok(Box::<QStudio>::default())),
     )
-}
-
-use egui::{Ui, WidgetText};
-use egui_dock::{DockArea, DockState, OverlayType, Style, TabAddAlign, TabViewer};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum TabKind {
-    Code(String),
-    Markdown(String),
-    Settings(String),
-}
-
-impl TabKind {
-    fn as_str(&self) -> &str {
-        match self {
-            TabKind::Markdown(s) | TabKind::Code(s) => s,
-            TabKind::Settings(_) => "Settings",
-        }
-    }
-}
-
-type Tab = TabKind;
-
-#[derive(Debug)]
-struct Code {
-    code: String,
-    file_path: Option<String>,
-    file_name: Option<String>,
-}
-
-impl Code {
-    fn files_been_edited(&self) -> bool {
-        if self.file_path.is_some() && self.file_name.is_some() {
-            if let Some(path) = &self.file_path {
-                match fs::read_to_string(path) {
-                    Ok(file_data) => {
-                        fn calculate_checksum<T: Hash>(t: &T) -> u64 {
-                            let mut s = DefaultHasher::new();
-                            t.hash(&mut s);
-                            s.finish()
-                        }
-
-                        let code_checksum = calculate_checksum(&self.code);
-                        let file_checksum = calculate_checksum(&file_data);
-
-                        code_checksum != file_checksum
-                    }
-                    Err(_) => false,
-                }
-            } else {
-                false
-            }
-        } else {
-            true
-        }
-    }
-}
-
-struct MyTabViewer {
-    data: HashMap<String, Code>,
-    settings: Rc<RefCell<Settings>>,
-}
-
-impl fmt::Debug for MyTabViewer {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MyTabViewer")
-            .field("data", &self.data)
-            .field("settings", &self.settings)
-            .finish()
-    }
-}
-
-impl MyTabViewer {
-    fn new(settings: Rc<RefCell<Settings>>) -> Self {
-        let mut hm = HashMap::new();
-        hm.insert(
-            "0".to_string(),
-            Code {
-                code: String::new(),
-                file_path: None,
-                file_name: None,
-            },
-        );
-        MyTabViewer { data: hm, settings }
-    }
-
-    fn new_code_tab(&mut self, key: String, code: String) {
-        self.data.insert(
-            key,
-            Code {
-                code,
-                file_path: None,
-                file_name: None,
-            },
-        );
-    }
-
-    fn open_code_tab(&mut self, key: &str) -> Option<&Code> {
-        self.data.get(key)
-    }
-
-    fn mut_code(&mut self, key: String) -> &mut String {
-        &mut self
-            .data
-            .entry(key)
-            .or_insert(Code {
-                code: String::new(),
-                file_path: None,
-                file_name: None,
-            })
-            .code
-    }
-
-    fn save_code(&mut self, key: &str) -> Result<(), String> {
-        if let Some(code) = self.data.get(key) {
-            if let Some(path) = &code.file_path {
-                fs::write(path, &code.code).map_err(|e| e.to_string())
-            } else {
-                self.save_new_code(key, code.code.clone())
-            }
-        } else {
-            Err("No code found for key.".to_string())
-        }
-    }
-
-    fn save_new_code(&mut self, key: &str, code: String) -> Result<(), String> {
-        let save = rfd::FileDialog::new()
-            .add_filter("Quant Query Language", &["qql"])
-            .save_file();
-        let opened_file = self
-            .data
-            .get_mut(key)
-            .ok_or("No opened_file found for key")?;
-        opened_file.file_name = Some(
-            PathBuf::from(save.as_ref().unwrap().as_path())
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .into_owned(),
-        );
-        opened_file.file_path = save.map(|p| p.to_string_lossy().into_owned());
-        fs::write(opened_file.file_path.as_ref().unwrap(), &opened_file.code)
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    fn open_file(&mut self, key: &str, path: &str) -> Result<(), String> {
-        let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
-        self.data.insert(
-            key.to_string(),
-            Code {
-                code: content,
-                file_path: Some(path.to_string()),
-                file_name: Some(
-                    PathBuf::from(path)
-                        .file_name()
-                        .unwrap()
-                        .to_string_lossy()
-                        .into(),
-                ),
-            },
-        );
-        Ok(())
-    }
-}
-
-impl TabViewer for MyTabViewer {
-    type Tab = Tab;
-
-    fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
-        if tab.as_str() == "0" {
-            return WidgetText::from("Welcome to Q Studio");
-        }
-        if tab.as_str() == "1" {
-            return WidgetText::from("Settings");
-        }
-        let s = self
-            .data
-            .get(tab.as_str())
-            .map(|code| code.file_name.clone())
-            .unwrap_or_default();
-
-        let edited = self
-            .data
-            .get(tab.as_str())
-            .map(|code| code.files_been_edited())
-            .unwrap_or(false);
-
-        let title = if edited {
-            format!("{}*", s.unwrap_or_else(|| "Untitled".to_string()))
-        } else {
-            s.unwrap_or_else(|| "Untitled".to_string())
-        };
-
-        WidgetText::from(title)
-    }
-
-    fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
-        let rows = (ui.available_height() / 18.0).floor() as usize;
-        match tab {
-            TabKind::Code(key) => {
-                CodeEditor::default()
-                    .id_source("code editor")
-                    .with_rows(rows)
-                    .with_fontsize(14.0)
-                    .with_theme(if ui.ctx().style().visuals.dark_mode {
-                        ColorTheme::GITHUB_DARK
-                    } else {
-                        ColorTheme::GITHUB_LIGHT
-                    })
-                    .with_syntax(Syntax::qql())
-                    .with_numlines(true)
-                    .show(ui, self.mut_code(key.clone()));
-            }
-            TabKind::Markdown(_) => {
-                let text = include_str!("../../qql.md");
-                let mut cache = CommonMarkCache::default();
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    let md = CommonMarkViewer::new();
-                    md.show(ui, &mut cache, text);
-                });
-            }
-            TabKind::Settings(_) => {
-                ui.label("Settings");
-                ui.separator();
-                let mut settings = self.settings.borrow_mut();
-                ui.checkbox(&mut settings.dark_mode, "Enable Dark Mode");
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum QueryResult {
-    Table(DataFrame),
-    Graph(Graph),
-    Error(String),
-    None,
-}
-
-impl Default for QueryResult {
-    fn default() -> Self {
-        QueryResult::None
-    }
-}
-
-#[derive(Debug)]
-pub struct Settings {
-    pub dark_mode: bool,
 }
 
 pub struct QStudio {
     dock_state: DockState<Tab>,
     tab_viewer: MyTabViewer,
-    query_result: QueryResult,
-    debug_window: bool,
+    query_result: Result<Output, String>,
+    debug_panel: bool,
     settings: Rc<RefCell<Settings>>,
+    preview: Preview,
 }
 
 impl Default for QStudio {
@@ -313,28 +64,24 @@ impl Default for QStudio {
         QStudio {
             dock_state: DockState::new(tabs),
             tab_viewer: MyTabViewer::new(settings.clone()),
-            query_result: QueryResult::default(),
-            debug_window: false,
+            query_result: Ok(Output::default()),
+            debug_panel: false,
             settings,
+            preview: Preview::default(),
         }
     }
 }
 
 impl eframe::App for QStudio {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        // Apply visual style based on dark_mode setting
-        // let dark_mode = self.settings.borrow().dark_mode;
-        // let visuals = if dark_mode {
-        //     egui::Visuals::dark()
-        // } else {
-        //     egui::Visuals::light()
-        // };
-        // ctx.set_visuals(visuals);
-        set_theme(ctx, if self.settings.borrow().dark_mode {
-            GITHUB_DARK
-        } else {
-            GITHUB_LIGHT
-        });
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        set_theme(
+            ctx,
+            if self.settings.borrow().dark_mode {
+                GITHUB_DARK
+            } else {
+                GITHUB_LIGHT
+            },
+        );
 
         // Handle Command+R (Run Query)
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::R)) {
@@ -345,24 +92,37 @@ impl eframe::App for QStudio {
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
             if let Some(tab) = self.dock_state.find_active_focused() {
                 if let TabKind::Code(key) = tab.1 {
-                    if let Err(e) = self.tab_viewer.save_code(key) {
+                    if let Err(e) = self.tab_viewer.save_code(&key) {
                         eprintln!("Failed to save code: {}", e);
                     }
                 }
             }
         }
 
-        self.left_panel(ctx);
-        self.central_panel(ctx);
+        self.code_panel(ctx);
+        match &self.query_result {
+            Ok(Output::Data {
+                graph,
+                tables,
+                trades,
+            }) => {
+                self.preview
+                    .render(ctx, graph.clone(), tables.clone(), trades.clone());
+            }
+            Err(ref e) | Ok(Output::Error(ref e)) => {
+                self.preview.error(ctx, e.clone());
+            }
+            _ => {}
+        }
 
-        if self.debug_window {
-            self.debug_window(ctx);
+        if self.debug_panel {
+            self.debug_panel(ctx);
         }
     }
 }
 
 impl QStudio {
-    fn debug_window(&mut self, ctx: &egui::Context) {
+    fn debug_panel(&mut self, ctx: &egui::Context) {
         egui::SidePanel::right("Debug Panel")
             .resizable(true)
             .default_width(300.0)
@@ -371,16 +131,17 @@ impl QStudio {
                 ui.horizontal(|ui| {
                     ui.heading("Debug Information");
                     if ui.button("Close").clicked() {
-                        self.debug_window = false;
+                        self.debug_panel = false;
                     }
                 });
                 ui.separator();
                 egui::ScrollArea::vertical()
+                    .max_width(400.0)
                     .max_height(ui.available_height())
                     .show(ui, |ui| {
                         if let Some(tab) = self.dock_state.find_active_focused() {
                             if let TabKind::Code(key) = tab.1 {
-                                if let Some(code) = self.tab_viewer.open_code_tab(key) {
+                                if let Some(code) = self.tab_viewer.open_code_tab(&key) {
                                     ui.collapsing("Engine Query", |ui| {
                                         match Engine::new(code.code.as_str()) {
                                             Ok(engine) => {
@@ -413,67 +174,13 @@ impl QStudio {
             });
     }
 
-    fn left_panel(&mut self, ctx: &egui::Context) {
+    fn code_panel(&mut self, ctx: &egui::Context) {
         egui::SidePanel::left("Code Editor")
             .resizable(true)
             .default_width(ctx.screen_rect().width() / 2.0)
             .min_width(ctx.screen_rect().width() / 4.0)
             .show(ctx, |ui| {
-                egui::MenuBar::new().ui(ui, |ui| {
-                    ui.menu_button("File", |ui| {
-                        if ui.button("New").clicked() {
-                            let s: String = random_string();
-                            self.dock_state
-                                .push_to_focused_leaf(TabKind::Code(s.clone()));
-                        }
-                        if ui.button("Open").clicked() {
-                            let path = rfd::FileDialog::new()
-                                .add_filter("Quant Query Files", &["qql"])
-                                .add_filter("All files", &["*"])
-                                .pick_file();
-
-                            if path.is_none() {
-                                return;
-                            }
-                            let path = path.unwrap().to_string_lossy().into_owned();
-                            let s = random_string();
-                            if let Err(e) = self.tab_viewer.open_file(&s, &path) {
-                                eprintln!("Failed to open file: {}", e);
-                                return;
-                            }
-
-                            let s: String = random_string();
-                            let _ = self.tab_viewer.open_file(&s, &path);
-                            self.dock_state.push_to_focused_leaf(TabKind::Code(s));
-                        }
-                        if ui.button("Save").clicked() {}
-                    });
-
-                    ui.menu_button("Tools", |ui| {
-                        if ui
-                            .button("Run Query")
-                            .on_hover_text("Execute the query in the editor")
-                            .clicked()
-                        {
-                            self.run_query();
-                        }
-                        if ui.button("Debug").clicked() {
-                            self.debug_window = !self.debug_window;
-                        }
-                    });
-
-                    ui.menu_button("View", |ui| {
-                        if ui.button("Cheat Sheet").clicked() {
-                            self.dock_state
-                                .push_to_focused_leaf(TabKind::Markdown("0".to_string()));
-                        }
-                        ui.separator();
-                        if ui.button("Settings").clicked() {
-                            self.dock_state
-                                .push_to_focused_leaf(TabKind::Settings("1".to_string()));
-                        }
-                    });
-                });
+                menubar(ui, self);
 
                 let mut style = Style::from_egui(ui.style());
                 style.overlay.overlay_type = OverlayType::HighlightedAreas;
@@ -485,16 +192,17 @@ impl QStudio {
                     .show_inside(ui, &mut self.tab_viewer);
             });
     }
+
     fn run_query(&mut self) {
-        println!("Running query...");
-        println!("{:?}", self.dock_state.find_active_focused());
+        // println!("Running query...");
+        // println!("{:?}", self.dock_state.find_active_focused());
         if let Some(tab) = self.dock_state.find_active_focused() {
-            println!("Running query in tab: {}", tab.1.as_str());
+            // println!("Running query in tab: {}", tab.1.as_str());
             if let TabKind::Code(key) = tab.1 {
-                if let Some(code) = self.tab_viewer.open_code_tab(key) {
+                if let Some(code) = self.tab_viewer.open_code_tab(&key) {
                     // Clone the code string so no references escape
                     let code_string = code.code.clone();
-                    println!("Running query: {}", code_string);
+                    // println!("Running query: {}", code_string);
                     let thread = std::thread::spawn(move || {
                         // If Engine::run is async, you need to use a runtime here
                         let engine = Engine::new(code_string.as_str());
@@ -510,95 +218,9 @@ impl QStudio {
                         }
                     });
 
-                    match thread.join().unwrap() {
-                        Ok(data) => {
-                            self.query_result = match data {
-                                Output::DataFrame(df) => QueryResult::Table(df),
-                                Output::Graph(graph) => QueryResult::Graph(graph),
-                            };
-                            // println!("Query executed successfully. {:?}", data);
-                            // Handle the DataFrame, e.g., display it
-                        }
-                        Err(e) => {
-                            self.query_result = QueryResult::Error(e);
-                            // println!("Error executing query: {}", e);
-                        }
-                    }
+                    self.query_result = thread.join().unwrap();
                 }
             }
         }
     }
-
-    fn central_panel(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| match &self.query_result {
-            QueryResult::Table(df) => {
-                if !df.is_empty() {
-                    show_dataframe_table(ui, df);
-                } else {
-                    ui.label("No data available.");
-                }
-            }
-            QueryResult::Graph(df) => {
-                // Placeholder for graph rendering logic
-                graph::DrawGraph::new(df.clone()).draw(ui);
-            }
-            QueryResult::Error(e) => {
-                ui.label(format!("Error: {}", e));
-            }
-            QueryResult::None => {
-                ui.label("No query result available.");
-            }
-
-        });
-    }
-
-    fn bottom_panel(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.label("Bottom Panel");
-        });
-    }
-}
-
-// Helper to render a DataFrame as an egui_extras TableBuilder
-fn show_dataframe_table(ui: &mut egui::Ui, df: &DataFrame) {
-    let columns = df.get_columns();
-    let ncols = columns.len();
-    let nrows = df.height();
-
-    let mut table = TableBuilder::new(ui);
-
-    // Add columns (all resizable, remainder for last)
-    for i in 0..ncols {
-        if i == ncols - 1 {
-            table = table.column(Column::remainder());
-        } else {
-            table = table.column(Column::auto().resizable(true));
-        }
-    }
-
-    // Header
-    table
-        .striped(true)
-        .header(20.0, |mut header| {
-            for col in columns {
-                header.col(|ui| {
-                    ui.heading(col.name().as_str());
-                });
-            }
-        })
-        .body(|mut body| {
-            for row_idx in 0..nrows {
-                body.row(24.0, |mut row| {
-                    for col in columns {
-                        row.col(|ui| {
-                            let val = match col.get(row_idx) {
-                                Ok(v) => v.to_string(),
-                                _ => "NULL".into(),
-                            };
-                            ui.label(format!("{}", val));
-                        });
-                    }
-                });
-            }
-        });
 }

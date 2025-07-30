@@ -7,47 +7,38 @@ use yahoo_finance_api as yahoo;
 
 use crate::calculation::Calculation;
 use crate::parser::ActionSection;
-use crate::parser::GraphSection;
+use crate::parser::Frame;
 use crate::parser::ModelSection;
-use crate::parser::Query;
-use crate::parser::ShowType;
 use crate::parser::TimeSpec;
-use crate::parser::{DrawCommand, DrawType, Graph};
+use crate::parser::TradeSection;
+use crate::parser::TradeType;
 // Add a stub Graph struct so the type exists
 pub struct HistoricalController<'a> {
-    query: &'a Query,
+    frame: &'a Frame,
+    trade: Option<&'a TradeSection>,
 }
 
 impl<'a> HistoricalController<'a> {
-    pub fn new(query: &'a Query) -> Self {
-        HistoricalController { query }
+    pub fn new(frame: &'a Frame, trade: Option<&'a TradeSection>) -> Self {
+        HistoricalController { frame, trade }
     }
 
-    pub async fn execute(&self) -> Result<Output, String> {
+    pub async fn execute(&self) -> Result<DataFrame, String> {
         // Implement the logic to handle historical queries
-        let df = match pull_data(&self.query.model).await {
+        let df = match pull_data(&self.frame.model).await {
             Ok(data) => data,
             Err(e) => return Err(format!("Failed to pull data: {}", e)),
         };
 
-        let action = action_over_data(&self.query.actions, df);
+        let mut action = action_over_data(&self.frame.actions, df);
 
-        if self.query.actions.show == ShowType::Table {
-            match action {
-                Ok(data_frame) => Ok(Output::DataFrame(data_frame)),
-                Err(e) => Err(format!("Failed to process action: {}", e)),
-            }
-        } else if let ShowType::Graph(ref graph_section) = self.query.actions.show {
-            let graph = graph_over_data(graph_section, action?);
-            let graph = match graph {
-                Ok(g) => g,
-                Err(e) => return Err(format!("Failed to create graph: {}", e)),
-            };
-
-            return Ok(Output::Graph(graph));
-        } else {
-            Err("No valid action specified".to_string())
+        if self.trade.is_some() {
+            let trade_section = self.trade.as_ref().unwrap();
+            let df = trade_over_data(trade_section, action?);
+            action = df;
         }
+
+        action
     }
 }
 
@@ -115,6 +106,116 @@ async fn pull_data(model: &ModelSection) -> Result<DataFrame, String> {
     Ok(df)
 }
 
+pub fn trade_over_data(trade: &TradeSection, df: DataFrame) -> Result<DataFrame, String> {
+    let n = df.height();
+    let mut entry_col = vec![None; n];
+    let mut exit_col = vec![None; n];
+    let mut limit_col = vec![None; n];
+
+    let close = match df
+        .column("close")
+        .map_err(|e| format!("Missing 'close' column: {}", e))?
+        .f64()
+    {
+        Ok(col) => col.to_vec(),
+        Err(e) => return Err(format!("Failed to get 'close' column: {}", e)),
+    };
+
+    let entry_fields: Vec<Vec<f64>> = match trade
+        .entry
+        .iter()
+        .map(|f| {
+            let col = df.column(f)?.f64()?.to_vec();
+            Ok(col.into_iter().map(|v| v.unwrap_or(0.0)).collect())
+        })
+        .collect::<Result<_, PolarsError>>()
+    {
+        Ok(fields) => fields,
+        Err(e) => return Err(format!("Failed to get entry fields: {}", e)),
+    };
+
+    let exit_fields: Vec<Vec<f64>> = match trade
+        .exit
+        .iter()
+        .map(|f| {
+            let col = df.column(f)?.f64()?.to_vec();
+            Ok(col.into_iter().map(|v| v.unwrap_or(0.0)).collect())
+        })
+        .collect::<Result<_, PolarsError>>()
+    {
+        Ok(fields) => fields,
+        Err(e) => return Err(format!("Failed to get exit fields: {}", e)),
+    };
+
+    let mut trade_id = 1;
+    let mut i = 0;
+
+    while i < n {
+        let entry_score: f64 = entry_fields.iter().map(|col| col[i]).sum();
+
+        if entry_score >= trade.within_entry {
+            entry_col[i] = Some(trade_id);
+
+            let entry_price = close[i];
+            let mut j = i + 1;
+            let mut exited = false;
+
+            while j < n && (j - i) <= trade.hold as usize {
+                let exit_score: f64 = exit_fields.iter().map(|col| col[j]).sum();
+                let price = close[j];
+
+                // stop loss condition
+                let loss_triggered = match (entry_price, price, trade.trade_type.clone()) {
+                    (Some(entry), Some(price), TradeType::OptionCall)
+                    | (Some(entry), Some(price), TradeType::Stock) => {
+                        price < entry - trade.stop_loss
+                    }
+                    (Some(entry), Some(price), TradeType::OptionPut) => {
+                        price > entry + trade.stop_loss
+                    }
+                    _ => false, // If entry_price or price is None, do not trigger stop loss
+                };
+
+                if loss_triggered {
+                    limit_col[j] = Some(trade_id);
+                    exited = true;
+                    break;
+                }
+
+                if exit_score >= trade.within_exit {
+                    exit_col[j] = Some(trade_id);
+                    exited = true;
+                    break;
+                }
+
+                j += 1;
+            }
+
+            // force exit after hold
+            if !exited && j < n {
+                exit_col[j] = Some(trade_id);
+            }
+
+            trade_id += 1;
+            i = j; // skip to after trade ends
+        } else {
+            i += 1;
+        }
+    }
+
+    // Convert to Series
+    let entry_series = Series::new("entry".into(), entry_col);
+    let exit_series = Series::new("exit".into(), exit_col);
+    let limit_series = Series::new("limit".into(), limit_col);
+
+    let mut df = df.clone();
+    df.with_column(entry_series).map_err(|e| e.to_string())?;
+    df.with_column(exit_series).map_err(|e| e.to_string())?;
+    df.with_column(limit_series).map_err(|e| e.to_string())?;
+
+    Ok(df)
+}
+
 pub fn action_over_data(action: &ActionSection, df: DataFrame) -> Result<DataFrame, String> {
     let field = action.fields.clone();
 
@@ -148,109 +249,4 @@ pub fn action_over_data(action: &ActionSection, df: DataFrame) -> Result<DataFra
     let result_df =
         DataFrame::new(columns).map_err(|e| format!("Failed to create DataFrame: {}", e))?;
     Ok(result_df)
-}
-
-fn graph_over_data(graph_section: &GraphSection, df: DataFrame) -> Result<Graph, String> {
-    let timestamps = df
-        .column("timestamp")
-        .map_err(|e| format!("Missing 'timestamp' column: {}", e))?
-        .i64()
-        .map_err(|e| format!("Expected 'timestamp' to be f64: {}", e))?
-        .to_vec();
-
-    let axis_labels = timestamps
-        .iter()
-        .map(|ts| ts.unwrap_or(0).to_string())
-        .collect::<Vec<_>>();
-
-    let mut data: Vec<DrawType> = Vec::new();
-
-    for command in &graph_section.commands {
-        match command {
-            DrawCommand::Line(name, fields) => {
-                for field in fields {
-                    let series = df
-                        .column(field)
-                        .map_err(|e| format!("Line column '{}' missing: {}", field, e))?
-                        .f64()
-                        .map_err(|e| format!("Line column '{}' not f64: {}", field, e))?;
-
-                    let values = series
-                        .to_vec()
-                        .iter()
-                        .map(|v| v.unwrap_or(0.0))
-                        .collect::<Vec<_>>();
-                    data.push(DrawType::Line(name.clone(), values));
-                }
-            }
-
-            DrawCommand::Candle {
-                name,
-                open,
-                high,
-                low,
-                close,
-            } => {
-                let open = df
-                    .column(open)
-                    .map_err(|e| e.to_string())?
-                    .f64()
-                    .map_err(|e| e.to_string())?
-                    .to_vec();
-                let high = df
-                    .column(high)
-                    .map_err(|e| e.to_string())?
-                    .f64()
-                    .map_err(|e| e.to_string())?
-                    .to_vec();
-                let low = df
-                    .column(low)
-                    .map_err(|e| e.to_string())?
-                    .f64()
-                    .map_err(|e| e.to_string())?
-                    .to_vec();
-                let close = df
-                    .column(close)
-                    .map_err(|e| e.to_string())?
-                    .f64()
-                    .map_err(|e| e.to_string())?
-                    .to_vec();
-
-                let candles: Vec<(f64, f64, f64, f64)> = open
-                    .into_iter()
-                    .zip(high)
-                    .zip(low)
-                    .zip(close)
-                    .map(|(((o, h), l), c)| {
-                        (
-                            o.unwrap_or(0.0),
-                            h.unwrap_or(0.0),
-                            l.unwrap_or(0.0),
-                            c.unwrap_or(0.0),
-                        )
-                    })
-                    .collect();
-
-                data.push(DrawType::Candlestick("Candles".to_string(), candles));
-            }
-
-            DrawCommand::Bar(name, label) => {
-                let values = df
-                    .column(label)
-                    .map_err(|e| format!("Bar column '{}' missing: {}", label, e))?
-                    .f64()
-                    .map_err(|e| format!("Bar column '{}' not f64: {}", label, e))?
-                    .to_vec();
-
-                let x: Vec<f64> = (0..values.len()).map(|i| i as f64).collect();
-                data.push(DrawType::Bar(name.clone(), x));
-            }
-        }
-    }
-
-    Ok(Graph {
-        data,
-        axis_labels,
-        title: "QQL Plot".into(),
-    })
 }

@@ -1,6 +1,7 @@
 use egui::{Color32, Stroke, TextStyle};
 use egui_plot::{
-    uniform_grid_spacer, Bar, BarChart, BoxElem, BoxPlot, Corner, Legend, Line, Plot, PlotPoints,
+    uniform_grid_spacer, Bar, BarChart, BoxElem, BoxPlot, Corner, Legend, Line, Plot, PlotPoint,
+    PlotPoints, Polygon,
 };
 use engine::parser::{DrawType, Graph};
 
@@ -127,6 +128,36 @@ impl DrawGraph {
                                 .collect();
 
                             plot_ui.box_plot(BoxPlot::new(name, elems));
+                        }
+
+                        DrawType::RedRect(_name, rects) => {
+                            for &(x0, x1, price) in rects {
+                                let pts: Vec<[f64; 2]> = vec![
+                                    [x0, price],
+                                    [x1, price],
+                                    [x1, price * 1.001],
+                                    [x0, price * 1.001],
+                                ];
+
+                                plot_ui.polygon(Polygon::new("red_trade", pts).fill_color(
+                                    Color32::from_rgba_premultiplied(200, 50, 50, 128),
+                                ));
+                            }
+                        }
+
+                        DrawType::GreenRect(_name, rects) => {
+                            for &(x0, x1, price) in rects {
+                                let pts: Vec<[f64; 2]> = vec![
+                                    [x0, price],
+                                    [x1, price],
+                                    [x1, price * 1.001],
+                                    [x0, price * 1.001],
+                                ];
+
+                                plot_ui.polygon(Polygon::new("green_trade", pts).fill_color(
+                                    Color32::from_rgba_premultiplied(50, 200, 50, 128),
+                                ));
+                            }
                         }
                     }
                 }

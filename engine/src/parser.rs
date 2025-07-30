@@ -26,15 +26,25 @@
 
 use std::iter::Peekable;
 
+use polars::frame;
+
 use crate::lexer::Lexer;
 use crate::lexer::{Keyword, Token, TokenKind}; // assuming you expose Lexer in lexer.rs
+use std::collections::HashMap;
 
 /* ------------------------------- AST types ------------------------------- */
 
 #[derive(Debug, Clone)]
-pub struct Query {
+pub struct Frame {
     pub model: ModelSection,
     pub actions: ActionSection,
+}
+
+#[derive(Debug, Clone)]
+pub struct Query {
+    pub frame: HashMap<String, Frame>,
+    pub graph: Option<GraphSection>,
+    pub trade: Option<TradeSection>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,7 +77,7 @@ pub enum ShowType {
 pub struct ActionSection {
     pub fields: Vec<String>,
     pub calc: Option<Vec<Calc>>,
-    pub show: ShowType, // always true if present
+    // pub show: ShowType, // always true if present
 }
 
 #[derive(Debug, Clone)]
@@ -79,20 +89,40 @@ pub struct Calc {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphSection {
+    pub xaxis: String, // optional x-axis label
     pub commands: Vec<DrawCommand>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DrawCommand {
-    Line(String, Vec<String>),
-    Bar(String, String),
+    Line {
+        name: String,
+        series: Vec<String>, // fields to draw
+        frame: String,
+    },
+    Bar {
+        name: String,
+        y: String, // single field for bar
+        frame: String,
+    },
     Candle {
         name: String,
         open: String,
         high: String,
         low: String,
         close: String,
+        frame: String,
     },
+}
+
+impl DrawCommand {
+    pub fn get_frame(&self) -> String {
+        match self {
+            DrawCommand::Line { frame, .. } => frame.clone(),
+            DrawCommand::Bar { frame, .. } => frame.clone(),
+            DrawCommand::Candle { frame, .. } => frame.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -100,6 +130,8 @@ pub enum DrawType {
     Line(String, Vec<f64>),                         // single series for line
     Bar(String, Vec<f64>),                          // (open, close) pairs for bar
     Candlestick(String, Vec<(f64, f64, f64, f64)>), // (open, high, low, close) for candlestick
+    RedRect(String, Vec<(f64, f64, f64)>),          // (x, y1, y2) for red rectangle
+    GreenRect(String, Vec<(f64, f64, f64)>),        // (x, y1, y2) for green rectangle
 }
 
 impl DrawType {
@@ -108,6 +140,8 @@ impl DrawType {
             DrawType::Line(_, values) => values.len(),
             DrawType::Bar(_, values) => values.len() / 2,
             DrawType::Candlestick(_, candles) => candles.len(),
+            DrawType::RedRect(_, values) => values.len(),
+            DrawType::GreenRect(_, values) => values.len(),
         }
     }
 }
@@ -127,6 +161,7 @@ impl Graph {
             DrawType::Candlestick(_, candles) => {
                 candles.iter().map(|&(o, h, l, c)| h).fold(max, f64::max)
             }
+            _ => max, // Rectangles don't have a max value
         })
     }
 
@@ -137,8 +172,27 @@ impl Graph {
             DrawType::Candlestick(_, candles) => {
                 candles.iter().map(|&(o, h, l, c)| l).fold(min, f64::min)
             }
+            _ => min, // Rectangles don't have a min value
         })
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TradeType {
+    OptionCall,
+    OptionPut,
+    Stock,
+}
+
+#[derive(Debug, Clone)]
+pub struct TradeSection {
+    pub trade_type: TradeType,
+    pub entry: Vec<String>,
+    pub within_entry: f64,
+    pub exit: Vec<String>,
+    pub within_exit: f64,
+    pub stop_loss: f64,
+    pub hold: i32,
 }
 
 /* ------------------------------- ParseError ------------------------------ */
@@ -197,9 +251,14 @@ impl<'a> Parser<'a> {
 
     // Entry point
     pub fn parse(&mut self) -> Result<Query, ParseError> {
-        let model = self.parse_model_section()?;
-        let actions = self.parse_action_section()?;
-        Ok(Query { model, actions })
+        let frame = self.parse_frame_section()?;
+        let trade = self.parse_trade_section()?;
+        let graph = self.parse_graph_section()?;
+        Ok(Query {
+            frame,
+            trade,
+            graph,
+        })
     }
 
     /* --------------------------- token helpers -------------------------- */
@@ -283,8 +342,32 @@ impl<'a> Parser<'a> {
 
     /* ---------------------- Model‑section parsing ---------------------- */
 
+    fn parse_frame_section(&mut self) -> Result<HashMap<String, Frame>, ParseError> {
+        self.consume_newlines()?;
+
+        let mut frames = HashMap::new();
+
+        while let Some(Ok(tok)) = self.peek_token() {
+            if tok.kind == TokenKind::Keyword(Keyword::Frame) {
+                self.next_token()?; // consume FRAME
+                let frame_name = self.expect_identifier()?;
+                self.consume_newlines()?;
+
+                let model = self.parse_model_section()?;
+                let actions = self.parse_action_section()?;
+
+                frames.insert(frame_name, Frame { model, actions });
+            } else {
+                break; // no more FRAME sections
+            }
+        }
+
+        Ok(frames)
+    }
+
     fn parse_model_section(&mut self) -> Result<ModelSection, ParseError> {
         self.consume_newlines()?;
+
         // model_type
         let (model_type, _model_kw) = match self.next_token()? {
             tok @ Token {
@@ -365,23 +448,23 @@ impl<'a> Parser<'a> {
         let calc = if calcs.is_empty() { None } else { Some(calcs) };
         self.consume_newlines()?;
 
-        // SHOW (required)
-        let show = match self.next_token()? {
-            Token {
-                kind: TokenKind::Keyword(Keyword::ShowTable),
-                ..
-            } => ShowType::Table,
-            Token {
-                kind: TokenKind::Keyword(Keyword::Graph),
-                ..
-            } => {
-                let graph = self.parse_graph_section()?; // graph section is optional
-                ShowType::Graph(graph)
-            }
-            tok => return Err(ParseError::expected(&tok, "SHOWTABLE or GRAPH")),
-        };
+        // // SHOW (required)
+        // let show = match self.next_token()? {
+        //     Token {
+        //         kind: TokenKind::Keyword(Keyword::ShowTable),
+        //         ..
+        //     } => ShowType::Table,
+        //     Token {
+        //         kind: TokenKind::Keyword(Keyword::Graph),
+        //         ..
+        //     } => {
+        //         let graph = self.parse_graph_section()?; // graph section is optional
+        //         ShowType::Graph(graph)
+        //     }
+        //     tok => return Err(ParseError::expected(&tok, "SHOWTABLE or GRAPH")),
+        // };
 
-        Ok(ActionSection { fields, calc, show })
+        Ok(ActionSection { fields, calc })
     }
 
     fn parse_field_list(&mut self) -> Result<Vec<String>, ParseError> {
@@ -432,8 +515,15 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_graph_section(&mut self) -> Result<GraphSection, ParseError> {
+    fn parse_graph_section(&mut self) -> Result<Option<GraphSection>, ParseError> {
         let mut commands = Vec::new();
+        self.consume_newlines()?;
+
+        self.expect_keyword(Keyword::Graph)?;
+        self.consume_newlines()?;
+
+        self.expect_keyword(Keyword::Xaxis)?;
+        let xaxis = self.expect_identifier()?;
         self.consume_newlines()?;
 
         loop {
@@ -442,14 +532,29 @@ impl<'a> Parser<'a> {
                     TokenKind::Keyword(Keyword::Line) => {
                         self.next_token()?; // consume LINE
                         let fields = self.parse_field_list()?;
+
+                        self.expect_keyword(Keyword::For)?;
+                        let frame = self.expect_identifier()?;
+
                         for field in &fields {
-                            commands.push(DrawCommand::Line(field.clone(), fields.clone()));
+                            commands.push(DrawCommand::Line {
+                                name: field.clone(),
+                                series: fields.clone(),
+                                frame: frame.clone(),
+                            });
                         }
                     }
                     TokenKind::Keyword(Keyword::Bar) => {
                         self.next_token()?; // consume BAR
                         let y = self.expect_identifier()?;
-                        commands.push(DrawCommand::Bar(y.clone(), y.clone()));
+
+                        self.expect_keyword(Keyword::For)?;
+                        let frame = self.expect_identifier()?;
+                        commands.push(DrawCommand::Bar {
+                            name: y.clone(),
+                            y,
+                            frame,
+                        });
                     }
                     TokenKind::Keyword(Keyword::Candle) => {
                         self.next_token()?; // consume CANDLE
@@ -460,12 +565,17 @@ impl<'a> Parser<'a> {
                         let low = self.expect_identifier()?;
                         self._expect_comma_or_newline()?;
                         let close = self.expect_identifier()?;
+
+                        self.expect_keyword(Keyword::For)?;
+                        let frame = self.expect_identifier()?;
+
                         commands.push(DrawCommand::Candle {
                             name: "Candle".to_string(),
                             open,
                             high,
                             low,
                             close,
+                            frame,
                         });
                     }
                     TokenKind::Newline => {
@@ -477,11 +587,123 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Ok(GraphSection { commands })
+        Ok(Some(GraphSection { xaxis, commands }))
+    }
+
+    fn parse_trade_section(&mut self) -> Result<Option<TradeSection>, ParseError> {
+        self.consume_newlines()?;
+        match self.peek_token() {
+            Some(Ok(tok)) if matches!(tok.kind, TokenKind::Keyword(Keyword::Trade)) => {
+                self.next_token()?; // consume TRADE
+                self.consume_newlines()?;
+
+                // Trade type
+                let trade_type = match self.next_token()? {
+                    Token {
+                        kind: TokenKind::Keyword(Keyword::OptionCall),
+                        ..
+                    } => TradeType::OptionCall,
+                    Token {
+                        kind: TokenKind::Keyword(Keyword::OptionPut),
+                        ..
+                    } => TradeType::OptionPut,
+                    Token {
+                        kind: TokenKind::Keyword(Keyword::Stock),
+                        ..
+                    } => TradeType::Stock,
+                    tok => {
+                        return Err(ParseError::expected(
+                            &tok,
+                            "trade type (OPTION CALL | OPTION PUT | STOCK)",
+                        ))
+                    }
+                };
+                self.consume_newlines()?;
+
+                // ENTRY
+                self.expect_keyword(Keyword::Entry)?;
+                let mut entry = Vec::new();
+                loop {
+                    match self.peek_token() {
+                        Some(Ok(tok)) if matches!(tok.kind, TokenKind::Literal(_)) => {
+                            entry.push(self.expect_literal()?);
+                        }
+                        Some(Ok(tok)) if matches!(tok.kind, TokenKind::Identifier(_)) => {
+                            entry.push(self.expect_identifier()?);
+                        }
+                        Some(Ok(tok)) if matches!(tok.kind, TokenKind::Comma) => {
+                            self.next_token()?; // consume comma
+                        }
+                        _ => break,
+                    }
+                }
+                // Last entry is within_entry (f64)
+                let within_entry = entry
+                    .pop()
+                    .ok_or_else(|| ParseError::eof("missing within_entry value"))?
+                    .parse::<f64>()
+                    .map_err(|_| ParseError::eof("invalid within_entry value"))?;
+
+                self.consume_newlines()?;
+
+                // EXIT
+                self.expect_keyword(Keyword::Exit)?;
+                let mut exit = Vec::new();
+                loop {
+                    match self.peek_token() {
+                        Some(Ok(tok)) if matches!(tok.kind, TokenKind::Literal(_)) => {
+                            exit.push(self.expect_literal()?);
+                        }
+                        Some(Ok(tok)) if matches!(tok.kind, TokenKind::Identifier(_)) => {
+                            exit.push(self.expect_identifier()?);
+                        }
+                        Some(Ok(tok)) if matches!(tok.kind, TokenKind::Comma) => {
+                            self.next_token()?; // consume comma
+                        }
+                        _ => break,
+                    }
+                }
+                // Last exit is within_exit (f64)
+                let within_exit = exit
+                    .pop()
+                    .ok_or_else(|| ParseError::eof("missing within_exit value"))?
+                    .parse::<f64>()
+                    .map_err(|_| ParseError::eof("invalid within_exit value"))?;
+
+                self.consume_newlines()?;
+
+                // LIMIT (stop_loss)
+                self.expect_keyword(Keyword::Limit)?;
+                let stop_loss = self
+                    .expect_identifier()?
+                    .parse::<f64>()
+                    .map_err(|_| ParseError::eof("invalid stop_loss value"))?;
+                self.consume_newlines()?;
+
+                // HOLD
+                self.expect_keyword(Keyword::Hold)?;
+                let hold = self
+                    .expect_identifier()?
+                    .parse::<i32>()
+                    .map_err(|_| ParseError::eof("invalid hold value"))?;
+                self.consume_newlines()?;
+
+                Ok(Some(TradeSection {
+                    trade_type,
+                    entry,
+                    within_entry,
+                    exit,
+                    within_exit,
+                    stop_loss,
+                    hold,
+                }))
+            }
+            _ => Ok(None),
+        }
     }
 }
 
-/// ----------------------------- Convenience ----------------------------- //  /
+/// ----------------------------- Convenience ----------------------------- ///
 
 /// Parse a QQL source string and get the AST.
 pub fn parse(src: &str) -> Result<Query, ParseError> {
@@ -497,29 +719,43 @@ mod tests {
     #[test]
     fn test_historical_query() {
         let src = r#"
-            HISTORICAL 
-            TICKER aapl
-            FROM 20220101 TO 20221231
-            PULL field1, field2, field3
-            CALC field1, field2 DIFFERENCE CALLED diff_field
-            SHOWTABLE
+            FRAME test
+                HISTORICAL 
+                TICKER aapl
+                FROM 20220101 TO 20221231
+                PULL field1, field2, field3
+                CALC field1, field2 DIFFERENCE CALLED diff_field
         "#;
 
         let query = parse(&src.replace("\n", " ")).unwrap();
         println!("{:#?}", query);
-        assert_eq!(query.model.model_type, ModelType::Historical);
-        assert_eq!(query.model.ticker, "aapl");
         assert_eq!(
-            query.model.time_spec,
+            query.frame.get("test").unwrap().model.model_type,
+            ModelType::Historical
+        );
+        assert_eq!(query.frame.get("test").unwrap().model.ticker, "aapl");
+        assert_eq!(
+            query.frame.get("test").unwrap().model.time_spec,
             TimeSpec::DateRange {
                 from: "20220101".to_string(),
                 to: "20221231".to_string()
             }
         );
-        assert_eq!(query.actions.fields, vec!["field1", "field2", "field3"]);
-        assert!(query.actions.calc.is_some());
         assert_eq!(
-            query.actions.calc.unwrap()[0].operation,
+            query.frame.get("test").unwrap().actions.fields,
+            vec!["field1", "field2", "field3"]
+        );
+        assert!(query.frame.get("test").unwrap().actions.calc.is_some());
+        assert_eq!(
+            query
+                .frame
+                .get("test")
+                .unwrap()
+                .actions
+                .calc
+                .as_ref()
+                .unwrap()[0]
+                .operation,
             Keyword::Difference
         );
     }
@@ -527,33 +763,47 @@ mod tests {
     #[test]
     fn test_multiple_calcs() {
         let src = r#"
-            HISTORICAL 
-            TICKER aapl
-            FROM 20220101 TO 20221231
-            PULL field1, field2
-            CALC field1, field2 DIFFERENCE CALLED diff_field
-            CALC field1, field2 SUM CALLED sum_field
-            SHOWTABLE
+            FRAME test
+                HISTORICAL 
+                TICKER aapl
+                FROM 20220101 TO 20221231
+                PULL field1, field2
+                CALC field1, field2 DIFFERENCE CALLED diff_field
+                CALC field1, field2 SUM CALLED sum_field
         "#;
 
         let query = parse(&src.replace("\n", " ")).unwrap();
-        assert_eq!(query.actions.calc.unwrap().len(), 2);
+        assert_eq!(
+            query
+                .frame
+                .get("test")
+                .unwrap()
+                .actions
+                .calc
+                .as_ref()
+                .unwrap()
+                .len(),
+            2
+        );
     }
     #[test]
     fn test_comment_handling() {
         let src = r#"
         -- This is a comment
-        HISTORICAL
-        -- Another comment
-        TICKER AAPL
-        FROM 20220101 TO 20221231
-        -- PULL starts here
-        PULL field1, field2
-        SHOWTABLE
+        FRAME test
+            HISTORICAL
+            -- Another comment
+            TICKER AAPL
+            FROM 20220101 TO 20221231
+            -- PULL starts here
+            PULL field1, field2
     "#;
 
         let query = parse(src).unwrap();
-        assert_eq!(query.model.ticker, "AAPL");
-        assert_eq!(query.actions.fields, vec!["field1", "field2"]);
+        assert_eq!(query.frame.get("test").unwrap().model.ticker, "AAPL");
+        assert_eq!(
+            query.frame.get("test").unwrap().actions.fields,
+            vec!["field1", "field2"]
+        );
     }
 }
