@@ -1,0 +1,149 @@
+use egui::RichText;
+use egui_material_icons::{
+    icon_button,
+    icons::{ICON_ADD, ICON_FAVORITE, ICON_IMAGE, ICON_REMOVE},
+};
+
+use egui_flex::{Flex, FlexAlignContent, FlexItem};
+
+use std::{hash::Hash, sync::Arc};
+use std::sync::mpsc::Sender;
+use crate::Channels;
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+
+mod filetree;
+mod active_engines;
+
+#[derive(Debug, Clone)]
+pub struct SideBar {
+    pub show_folder_tree: bool,
+    pub show_settings: bool,
+    pub show_active_engines: bool,
+
+    file_tree: filetree::FolderTree,
+    // Add other sidebar components as needed
+    engines : Arc<Mutex<HashMap<String, Arc<Mutex<engine::Engine>>>>>,
+}
+
+impl SideBar {
+    pub fn new(file_path: String, engines: Arc<Mutex<HashMap<String, Arc<Mutex<engine::Engine>>>>>) -> Self {
+        SideBar {
+            file_tree: filetree::FolderTree::new(file_path),
+            show_folder_tree: false,
+            show_settings: false,
+            show_active_engines: false,
+            engines,
+        }
+    }
+
+    pub fn width(&self) -> f32 {
+        if self.show_folder_tree || self.show_settings || self.show_active_engines {
+            64.0 + 256.0 // Fixed width for the sidebar
+        } else {
+            64.0
+        }
+    }
+}
+
+impl SideBar {
+    pub fn ui(&mut self, ui: &mut egui::Ui, channels: Arc<Channels>) {
+        let primary_background = if ui.visuals().dark_mode {
+            egui::Color32::BLACK
+        } else {
+            egui::Color32::WHITE
+        };
+
+        let secondary_background = if ui.visuals().dark_mode {
+            egui::Color32::from_black_alpha(192)
+        } else {
+            egui::Color32::from_white_alpha(192)
+        };
+
+        Flex::horizontal()
+            .align_content(FlexAlignContent::Stretch)
+            .show(ui, |flex| {
+                flex.add_ui(FlexItem::new().grow(1.0), |ui| {
+                    egui::Frame::none().fill(primary_background).show(ui, |ui| {
+                        ui.set_max_width(64.0);
+                        ui.set_min_width(64.0);
+                        ui.vertical_centered(|ui| {
+                            ui.set_min_height(ui.available_height());
+
+                            // Top margin
+                            ui.add_space(24.0);
+
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        RichText::new(
+                                            egui_material_icons::icons::ICON_LOW_PRIORITY,
+                                        )
+                                        .size(32.0),
+                                    )
+                                    .fill(egui::Color32::TRANSPARENT),
+                                )
+                                .on_hover_text("Add new pane")
+                                .clicked()
+                            {
+                                // Logic to add a new pane can be implemented here
+                                self.show_folder_tree = false;
+                                self.show_settings = false;
+                                self.show_active_engines = !self.show_active_engines;
+                            }
+
+                            ui.add_space(16.0); // Space between buttons
+
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        RichText::new(egui_material_icons::icons::ICON_FOLDER)
+                                            .size(32.0),
+                                    )
+                                    .fill(egui::Color32::TRANSPARENT),
+                                )
+                                .on_hover_text("View folder structure")
+                                .clicked()
+                            {
+                                self.show_active_engines = false;
+                                self.show_settings = false;
+                                self.show_folder_tree = !self.show_folder_tree;
+                            }
+                            ui.add_space(16.0); // Space between buttons
+
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        RichText::new(egui_material_icons::icons::ICON_SETTINGS)
+                                            .size(32.0),
+                                    )
+                                    .fill(egui::Color32::TRANSPARENT),
+                                )
+                                .on_hover_text("Open settings")
+                                .clicked()
+                            {
+                                self.show_active_engines = false;
+                                self.show_folder_tree = false;
+                                self.show_settings = !self.show_settings;
+                            }
+                            // ui.add_space(8.0); // Space between buttons
+                        });
+                    });
+                });
+
+                flex.add_ui(FlexItem::new().grow(1.0), |ui| {
+                    if self.show_folder_tree {
+                        ui.add_space(8.0);
+                        self.file_tree.ui(ui, channels);
+                    } else if self.show_settings {
+                        ui.add_space(8.0);
+                        ui.label("Settings will be implemented here.");
+                    } else if self.show_active_engines {
+                        ui.add_space(8.0);
+                        active_engines::active_engines_ui(ui, &self.engines.lock().unwrap(), channels);
+                    }
+                });
+            });
+    }
+}

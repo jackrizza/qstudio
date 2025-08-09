@@ -1,34 +1,3 @@
-//! Soothing pastel theme for [egui](egui).
-//!
-//! To use, call [`set_theme`](crate::set_theme) with the egui context
-//! and a [`Theme`](crate::Theme).
-//!
-//! # Example
-//!
-//! ```rust
-//! # use eframe::egui;
-//! struct App;
-//! impl eframe::App for App {
-//!     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-//!         catppuccin_egui::set_theme(ctx, catppuccin_egui::MACCHIATO);
-//!         egui::CentralPanel::default().show(&ctx, |ui| {
-//!             ui.label("Hello, world!");
-//!         });
-//!     }
-//! }
-//! ```
-//!
-//! You can also customize your own theme:
-//!
-//! ```rust
-//! # use eframe::egui;
-//! use catppuccin_egui::{Theme, MOCHA};
-//! const MY_MOCHA: Theme = Theme {
-//!     red: egui::Color32::from_rgb(255, 0, 0),
-//!     ..MOCHA
-//! };
-//! ```
-//!
 
 #[cfg(not(any(
     feature = "egui26",
@@ -76,7 +45,7 @@ pub fn set_theme(ctx: &egui::Context, theme: Theme) {
 /// # use egui::__run_test_ctx;
 /// # __run_test_ctx(|ctx| {
 /// let mut style = (*ctx.style()).clone();
-/// catppuccin_egui::set_style_theme(&mut style, catppuccin_egui::MACCHIATO);
+/// theme::set_style_theme(&mut style, theme::GITHUB_DARK);
 /// ctx.set_style(style);
 /// # });
 /// ```

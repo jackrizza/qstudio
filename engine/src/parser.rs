@@ -253,7 +253,12 @@ impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Result<Query, ParseError> {
         let frame = self.parse_frame_section()?;
         let trade = self.parse_trade_section()?;
-        let graph = self.parse_graph_section()?;
+        let graph = match self.parse_graph_section() {
+            Ok(g) => g,
+            Err(e) => {
+                None
+            }
+        };
         Ok(Query {
             frame,
             trade,
@@ -625,14 +630,14 @@ impl<'a> Parser<'a> {
                 let mut entry = Vec::new();
                 loop {
                     match self.peek_token() {
-                        Some(Ok(tok)) if matches!(tok.kind, TokenKind::Literal(_)) => {
-                            entry.push(self.expect_literal()?);
-                        }
                         Some(Ok(tok)) if matches!(tok.kind, TokenKind::Identifier(_)) => {
                             entry.push(self.expect_identifier()?);
                         }
                         Some(Ok(tok)) if matches!(tok.kind, TokenKind::Comma) => {
                             self.next_token()?; // consume comma
+                        }
+                        Some(Ok(tok)) if matches!(tok.kind, TokenKind::Literal(_)) => {
+                            entry.push(self.expect_literal()?);
                         }
                         _ => break,
                     }
@@ -651,14 +656,14 @@ impl<'a> Parser<'a> {
                 let mut exit = Vec::new();
                 loop {
                     match self.peek_token() {
-                        Some(Ok(tok)) if matches!(tok.kind, TokenKind::Literal(_)) => {
-                            exit.push(self.expect_literal()?);
-                        }
                         Some(Ok(tok)) if matches!(tok.kind, TokenKind::Identifier(_)) => {
                             exit.push(self.expect_identifier()?);
                         }
                         Some(Ok(tok)) if matches!(tok.kind, TokenKind::Comma) => {
                             self.next_token()?; // consume comma
+                        }
+                        Some(Ok(tok)) if matches!(tok.kind, TokenKind::Literal(_)) => {
+                            exit.push(self.expect_literal()?);
                         }
                         _ => break,
                     }
@@ -674,18 +679,36 @@ impl<'a> Parser<'a> {
 
                 // LIMIT (stop_loss)
                 self.expect_keyword(Keyword::Limit)?;
-                let stop_loss = self
-                    .expect_identifier()?
-                    .parse::<f64>()
-                    .map_err(|_| ParseError::eof("invalid stop_loss value"))?;
+                let stop_loss = match self.next_token()? {
+                    Token {
+                        kind: TokenKind::Literal(lit),
+                        ..
+                    }
+                    | Token {
+                        kind: TokenKind::Identifier(lit),
+                        ..
+                    } => lit
+                        .parse::<f64>()
+                        .map_err(|_| ParseError::eof("invalid stop_loss value"))?,
+                    tok => return Err(ParseError::expected(&tok, "stop_loss value")),
+                };
                 self.consume_newlines()?;
 
                 // HOLD
                 self.expect_keyword(Keyword::Hold)?;
-                let hold = self
-                    .expect_identifier()?
-                    .parse::<i32>()
-                    .map_err(|_| ParseError::eof("invalid hold value"))?;
+                let hold = match self.next_token()? {
+                    Token {
+                        kind: TokenKind::Literal(lit),
+                        ..
+                    }
+                    | Token {
+                        kind: TokenKind::Identifier(lit),
+                        ..
+                    } => lit
+                        .parse::<i32>()
+                        .map_err(|_| ParseError::eof("invalid hold value"))?,
+                    tok => return Err(ParseError::expected(&tok, "hold value")),
+                };
                 self.consume_newlines()?;
 
                 Ok(Some(TradeSection {
@@ -715,19 +738,21 @@ pub fn parse(src: &str) -> Result<Query, ParseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use indoc::indoc;
 
     #[test]
     fn test_historical_query() {
-        let src = r#"
+        let src = indoc! {r#"
             FRAME test
                 HISTORICAL 
                 TICKER aapl
                 FROM 20220101 TO 20221231
                 PULL field1, field2, field3
                 CALC field1, field2 DIFFERENCE CALLED diff_field
-        "#;
+        "#};
 
-        let query = parse(&src.replace("\n", " ")).unwrap();
+        // let query = parse(&src.replace("\n", " ")).unwrap();
+        let query = parse(src).unwrap();
         println!("{:#?}", query);
         assert_eq!(
             query.frame.get("test").unwrap().model.model_type,
@@ -772,7 +797,8 @@ mod tests {
                 CALC field1, field2 SUM CALLED sum_field
         "#;
 
-        let query = parse(&src.replace("\n", " ")).unwrap();
+        // let query = parse(&src.replace("\n", " ")).unwrap();
+        let query = parse(src).unwrap();
         assert_eq!(
             query
                 .frame
@@ -788,7 +814,7 @@ mod tests {
     }
     #[test]
     fn test_comment_handling() {
-        let src = r#"
+        let src = indoc! {r#"
         -- This is a comment
         FRAME test
             HISTORICAL
@@ -797,7 +823,7 @@ mod tests {
             FROM 20220101 TO 20221231
             -- PULL starts here
             PULL field1, field2
-    "#;
+        "#};
 
         let query = parse(src).unwrap();
         assert_eq!(query.frame.get("test").unwrap().model.ticker, "AAPL");

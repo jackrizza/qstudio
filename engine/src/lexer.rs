@@ -251,10 +251,16 @@ impl<'a> Iterator for Lexer<'a> {
     type Item = Result<Token, LexError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.next_token() {
-            Ok(tok) if matches!(tok.kind, TokenKind::EOF) => None,
-            res => Some(res),
+        if self._peek().is_none() {
+            // When no more characters, return EOF once
+            return Some(Ok(Token {
+                kind: TokenKind::EOF,
+                line: self.current_line,
+                column: self.current_col,
+            }));
         }
+
+        Some(self.next_token())
     }
 }
 

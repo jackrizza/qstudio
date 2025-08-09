@@ -18,6 +18,15 @@ pub enum Output {
     None,
 }
 
+impl Output {
+    pub fn get_graph(&self) -> Option<&Graph> {
+        match self {
+            Output::Data { graph, .. } => graph.as_ref(),
+            _ => None,
+        }
+    }
+}
+
 impl Default for Output {
     fn default() -> Self {
         Output::None
