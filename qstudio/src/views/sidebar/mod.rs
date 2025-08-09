@@ -15,6 +15,7 @@ use std::sync::Mutex;
 
 mod filetree;
 mod active_engines;
+mod settings;
 
 #[derive(Debug, Clone)]
 pub struct SideBar {
@@ -50,9 +51,9 @@ impl SideBar {
 impl SideBar {
     pub fn ui(&mut self, ui: &mut egui::Ui, channels: Arc<Channels>) {
         let primary_background = if ui.visuals().dark_mode {
-            egui::Color32::BLACK
+            egui::Color32::from_rgb(0x2c, 0x2c, 0x2c)
         } else {
-            egui::Color32::WHITE
+            egui::Color32::LIGHT_GRAY
         };
 
         let secondary_background = if ui.visuals().dark_mode {
@@ -138,7 +139,7 @@ impl SideBar {
                         self.file_tree.ui(ui, channels);
                     } else if self.show_settings {
                         ui.add_space(8.0);
-                        ui.label("Settings will be implemented here.");
+                        settings::settings_ui(ui);
                     } else if self.show_active_engines {
                         ui.add_space(8.0);
                         active_engines::active_engines_ui(ui, &self.engines.lock().unwrap(), channels);

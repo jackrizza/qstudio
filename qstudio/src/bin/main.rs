@@ -5,7 +5,6 @@ use egui_notify::Toasts;
 
 use engine::controllers::Output;
 use engine::Engine;
-use polars::frame::DataFrame;
 use qstudiov3::models::notification::Notification;
 use qstudiov3::utils::match_file_extension_for_pane_type;
 use std::collections::HashMap;

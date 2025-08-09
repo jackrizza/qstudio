@@ -95,6 +95,7 @@ impl Engine {
         // this will also handle actions on models
 
         let mut frames: HashMap<String, DataFrame> = HashMap::new();
+        self.status = EngineStatus::Running;
 
         for (name, frame) in self.query.frame.iter() {
             match frame.model.model_type {
@@ -132,6 +133,8 @@ impl Engine {
                 }
             }
         }
+
+        self.status = EngineStatus::Stopped;
 
         Ok(Output::Data {
             graph,
