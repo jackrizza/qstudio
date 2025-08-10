@@ -34,34 +34,34 @@ use std::collections::HashMap;
 
 /* ------------------------------- AST types ------------------------------- */
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Frame {
     pub model: ModelSection,
     pub actions: ActionSection,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Query {
     pub frame: HashMap<String, Frame>,
     pub graph: Option<GraphSection>,
     pub trade: Option<TradeSection>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ModelType {
     Live,
     Historical,
     Fundamental,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ModelSection {
     pub model_type: ModelType,
     pub ticker: String,
     pub time_spec: TimeSpec,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TimeSpec {
     DateRange { from: String, to: String },
     LiveSpec { interval: String, duration: String },
@@ -73,14 +73,14 @@ pub enum ShowType {
     Graph(GraphSection),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ActionSection {
     pub fields: Vec<String>,
     pub calc: Option<Vec<Calc>>,
     // pub show: ShowType, // always true if present
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Calc {
     pub inputs: Vec<String>,
     pub operation: Keyword, // Difference, Sum, Multiply, Divide
@@ -184,7 +184,7 @@ pub enum TradeType {
     Stock,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TradeSection {
     pub trade_type: TradeType,
     pub entry: Vec<String>,
@@ -255,9 +255,7 @@ impl<'a> Parser<'a> {
         let trade = self.parse_trade_section()?;
         let graph = match self.parse_graph_section() {
             Ok(g) => g,
-            Err(e) => {
-                None
-            }
+            Err(e) => None,
         };
         Ok(Query {
             frame,

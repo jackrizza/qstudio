@@ -9,6 +9,7 @@ pub enum UIEvent {
     Update,
     Notification(Notification),
     AddPane(UIEventPane),
+    RemovePane(String),
 }
 
 impl UIEventPane {

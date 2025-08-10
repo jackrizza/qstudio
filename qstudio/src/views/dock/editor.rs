@@ -1,7 +1,7 @@
+use crate::{EngineEvent, Notification};
 use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
 use std::sync::Arc;
 use theme::Theme;
-use crate::{Notification, EngineEvent};
 
 use crate::Channels;
 
@@ -24,6 +24,12 @@ pub fn code_editor(
                 .send(Notification::Error(format!("Failed to save file: {}", e)))
                 .unwrap();
         } else {
+            channels
+                .engine_tx
+                .lock()
+                .unwrap()
+                .send(EngineEvent::UpdateSource(file_path.clone()))
+                .unwrap();
             channels
                 .notification_tx
                 .lock()

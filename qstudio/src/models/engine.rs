@@ -3,5 +3,6 @@ pub enum EngineEvent {
     Stop(String),
     Restart(String),
     UpdateSource(String),
+    Delete(String),
 }
 

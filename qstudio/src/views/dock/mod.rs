@@ -1,11 +1,19 @@
+use crate::models::engine::EngineEvent;
 use crate::Channels;
 use egui::Ui;
+use egui_dock::tab_viewer::OnCloseResponse;
 use egui_dock::{DockArea, DockState, TabIndex, TabViewer};
 use engine::controllers::Output;
 use polars::frame::DataFrame;
 use std::collections::HashMap;
+use std::f32::consts::E;
 use std::fs;
 use std::sync::{Arc, Mutex};
+
+// Add these imports for CommonMark markdown rendering
+use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
+
+// Import Notification type
 
 mod editor;
 mod graph;
@@ -68,10 +76,41 @@ impl TabViewer for MyTabViewer {
         tab.title().into()
     }
 
+    fn on_close(&mut self, _tab: &mut Self::Tab) -> OnCloseResponse {
+        let _ = self
+            .channels
+            .engine_tx
+            .lock()
+            .unwrap()
+            .send(EngineEvent::Delete(_tab.title()));
+
+        let _ = self
+            .channels
+            .ui_tx
+            .lock()
+            .unwrap()
+            .send(crate::models::ui::UIEvent::RemovePane(
+                _tab.title().to_string(),
+            ));
+
+        OnCloseResponse::Close
+    }
+
     fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
         match tab {
             PaneType::MarkDown(content) => {
-                ui.label(content.clone());
+                let hello_world = include_str!("../../../../qql.md");
+                let text = if content == "Hello World" {
+                    hello_world.to_string()
+                } else {
+                    fs::read_to_string(content)
+                        .unwrap_or_else(|_| "Failed to read file".to_string())
+                };
+                let mut cache = CommonMarkCache::default();
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    let md = CommonMarkViewer::new();
+                    md.show(ui, &mut cache, &text);
+                });
             }
             PaneType::Blank => {
                 ui.label("This is a blank pane.");
@@ -108,6 +147,20 @@ impl PaneDock {
         let tabs = vec![PaneType::MarkDown("Hello World".into())];
         PaneDock {
             dock_state: DockState::new(tabs),
+        }
+    }
+
+    pub fn remove_pane(&mut self, title: &str) {
+        // Iterate through all tabs and remove the one with the matching title
+        let mut to_remove = None;
+        for ((surface, node), tab_index, tab) in self.dock_state.iter_all_tabs().enumerate().map(|(i, ((surface, node), tab))| ((surface, node), TabIndex(i), tab)) {
+            if tab.title() == title {
+                to_remove = Some((surface, node, tab_index));
+                break;
+            }
+        }
+        if let Some((surface, node, tab_index)) = to_remove {
+            self.dock_state.remove_tab((surface, node, tab_index));
         }
     }
 

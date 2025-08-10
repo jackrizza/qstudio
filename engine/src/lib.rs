@@ -8,6 +8,7 @@ mod utils;
 use parser::Graph;
 
 use std::collections::HashMap;
+use std::hash::Hash;
 
 use parser::{parse, Query};
 use polars::frame::DataFrame;
@@ -27,11 +28,20 @@ pub enum EngineStatus {
     Error(String),
 }
 
+#[derive(Debug, Clone)]
+struct CodeDiff {
+    frames: bool,
+    graph: bool,
+    trades: bool,
+}
+
 #[derive(Debug)]
 pub struct Engine {
     file_path: String,
     query: Query,
     status: EngineStatus,
+    frames: HashMap<String, DataFrame>,
+    code_diff: Option<CodeDiff>,
 }
 
 impl Engine {
@@ -44,6 +54,8 @@ impl Engine {
                 file_path: file_path.to_string(),
                 query,
                 status: EngineStatus::Stopped,
+                frames: HashMap::new(),
+                code_diff: None,
             }),
             Err(e) => {
                 return Err(format!(
@@ -75,13 +87,36 @@ impl Engine {
         }
     }
 
-    pub fn update_code(&mut self) -> Result<(), String> {
+    pub async fn update_code(&mut self) -> Result<Output, String> {
         let code = fs::read_to_string(&self.file_path)
             .map_err(|e| format!("Failed to read file: {}", e))?;
         match parse(&code) {
             Ok(query) => {
+                let mut cd = CodeDiff {
+                    frames: false,
+                    graph: false,
+                    trades: false,
+                };
+
+                // Check if frames have changed
+                if self.query.frame != query.frame {
+                    cd.frames = true;
+                }
+
+                // Check if graph has changed
+                if self.query.graph != query.graph {
+                    cd.graph = true;
+                }
+
+                // Check if trades have changed
+                if self.query.trade != query.trade {
+                    cd.trades = true;
+                }
+
+                self.code_diff = Some(cd);
                 self.query = query;
-                Ok(())
+
+                self.run().await
             }
             Err(e) => Err(format!(
                 "Failed to parse updated code: {}, line {}, column {}",
@@ -94,22 +129,32 @@ impl Engine {
         // first iter through models in frame and pull data,
         // this will also handle actions on models
 
-        let mut frames: HashMap<String, DataFrame> = HashMap::new();
         self.status = EngineStatus::Running;
 
-        for (name, frame) in self.query.frame.iter() {
-            match frame.model.model_type {
-                ModelType::Live => {
-                    return Err("Live model type is not supported yet".to_string());
-                }
-                ModelType::Historical => {
-                    let controller = HistoricalController::new(frame, None);
-                    let df = controller.execute().await?;
-                    frames.insert(name.clone(), df);
-                }
+        let cd = match &self.code_diff {
+            Some(cd) => cd.clone(),
+            None => CodeDiff {
+                frames: false,
+                graph: false,
+                trades: false,
+            },
+        };
 
-                ModelType::Fundamental => {
-                    return Err("Fundamental model type is not supported yet".to_string());
+        if !cd.frames {
+            for (name, frame) in self.query.frame.iter() {
+                match frame.model.model_type {
+                    ModelType::Live => {
+                        return Err("Live model type is not supported yet".to_string());
+                    }
+                    ModelType::Historical => {
+                        let controller = HistoricalController::new(frame, None);
+                        let df = controller.execute().await?;
+                        self.frames.insert(name.clone(), df);
+                    }
+
+                    ModelType::Fundamental => {
+                        return Err("Fundamental model type is not supported yet".to_string());
+                    }
                 }
             }
         }
@@ -119,26 +164,27 @@ impl Engine {
 
         // Now this will check if it needs to build a graph
         if let Some(g) = &self.query.graph {
-            graph = match utils::graph::graph_over_data(g, &frames) {
+            graph = match utils::graph::graph_over_data(g, &self.frames) {
                 Ok(g) => Some(g),
                 Err(e) => return Err(format!("Failed to build graph: {}", e)),
-            }
+            };
         }
 
         if let Some(trade_section) = &self.query.trade {
-            trades = match utils::trade::trades_over_data(trade_section, &frames) {
+            trades = match utils::trade::trades_over_data(trade_section, &self.frames) {
                 Ok(df) => Some(df),
                 Err(e) => {
                     return Err(format!("Failed to build trades: {}", e));
                 }
-            }
+            };
         }
 
         self.status = EngineStatus::Stopped;
+        self.code_diff = None;
 
         Ok(Output::Data {
             graph,
-            tables: frames,
+            tables: self.frames.clone(),
             trades,
         })
     }

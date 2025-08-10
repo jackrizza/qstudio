@@ -5,6 +5,7 @@ use egui_notify::Toasts;
 
 use engine::controllers::Output;
 use engine::Engine;
+use polars::prelude::file;
 use qstudiov3::models::notification::Notification;
 use qstudiov3::utils::match_file_extension_for_pane_type;
 use std::collections::HashMap;
@@ -91,6 +92,20 @@ impl eframe::App for State {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if let Some(engine_event) = self.channels.engine_rx.try_recv().ok() {
             match engine_event {
+                EngineEvent::Delete(file_path) => {
+                    if let Some(_) = self.engine.lock().unwrap().remove(&file_path) {
+                        self.dataframes.lock().unwrap().remove(&file_path);
+                        self.channels
+                            .notification_tx
+                            .lock()
+                            .unwrap()
+                            .send(Notification::Success(format!(
+                                "Engine deleted for file: {}",
+                                file_path
+                            )))
+                            .unwrap();
+                    }
+                }
                 EngineEvent::Start(file_path) => {
                     if let Some(engine) = self.engine.lock().unwrap().get(&file_path) {
                         let mut engine = engine.lock().unwrap();
@@ -169,23 +184,21 @@ impl eframe::App for State {
                 EngineEvent::UpdateSource(file_path) => {
                     if let Some(engine) = self.engine.lock().unwrap().get(&file_path) {
                         let mut engine = engine.lock().unwrap();
-                        if let Err(e) = engine.update_code() {
+                        if let Ok(out) = tokio::runtime::Runtime::new()
+                            .unwrap()
+                            .block_on(engine.update_code())
+                        {
+                            self.dataframes
+                                .lock()
+                                .unwrap()
+                                .insert(file_path.clone(), Arc::new(out));
+                        } else {
                             self.channels
                                 .notification_tx
                                 .lock()
                                 .unwrap()
                                 .send(Notification::Error(format!(
                                     "Failed to update engine code: {}",
-                                    e
-                                )))
-                                .unwrap();
-                        } else {
-                            self.channels
-                                .notification_tx
-                                .lock()
-                                .unwrap()
-                                .send(Notification::Success(format!(
-                                    "Engine source updated for file: {}",
                                     file_path
                                 )))
                                 .unwrap();
@@ -255,7 +268,9 @@ impl eframe::App for State {
                     self.add_engine(pane.title().to_string());
                     self.dock.add_pane(pane, &mut self.tab);
                 }
-
+                UIEvent::RemovePane(title) => {
+                    self.dock.remove_pane(&title);
+                }
                 UIEvent::Update => {
                     ctx.request_repaint();
                 }
