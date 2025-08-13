@@ -4,9 +4,7 @@ use egui::Ui;
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_dock::{DockArea, DockState, TabIndex, TabViewer};
 use engine::controllers::Output;
-use polars::frame::DataFrame;
 use std::collections::HashMap;
-use std::f32::consts::E;
 use std::fs;
 use std::sync::{Arc, Mutex};
 
@@ -79,13 +77,15 @@ impl TabViewer for MyTabViewer {
     fn on_close(&mut self, _tab: &mut Self::Tab) -> OnCloseResponse {
         let _ = self
             .channels
+            .senders
             .engine_tx
             .lock()
             .unwrap()
-            .send(EngineEvent::Delete(_tab.title()));
+            .send(Mutex::new(EngineEvent::Delete(_tab.title())));
 
         let _ = self
             .channels
+            .senders
             .ui_tx
             .lock()
             .unwrap()
@@ -153,7 +153,12 @@ impl PaneDock {
     pub fn remove_pane(&mut self, title: &str) {
         // Iterate through all tabs and remove the one with the matching title
         let mut to_remove = None;
-        for ((surface, node), tab_index, tab) in self.dock_state.iter_all_tabs().enumerate().map(|(i, ((surface, node), tab))| ((surface, node), TabIndex(i), tab)) {
+        for ((surface, node), tab_index, tab) in self
+            .dock_state
+            .iter_all_tabs()
+            .enumerate()
+            .map(|(i, ((surface, node), tab))| ((surface, node), TabIndex(i), tab))
+        {
             if tab.title() == title {
                 to_remove = Some((surface, node, tab_index));
                 break;

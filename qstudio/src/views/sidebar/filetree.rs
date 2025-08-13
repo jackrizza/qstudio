@@ -62,6 +62,7 @@ impl FolderTree {
             Fs::File { name, file_path } => {
                 if ui.link(name).clicked() {
                     channels
+                        .senders()
                         .ui_tx
                         .lock()
                         .unwrap()

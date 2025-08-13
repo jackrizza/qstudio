@@ -1,6 +1,7 @@
 use egui_notify::Toasts;
 use std::time::Duration;
 
+#[derive(Debug, Clone)]
 pub enum Notification {
     Success(String),
     Info(String),

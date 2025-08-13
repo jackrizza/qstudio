@@ -22,6 +22,7 @@ pub struct SideBar {
     pub show_folder_tree: bool,
     pub show_settings: bool,
     pub show_active_engines: bool,
+    pub show_search: bool,
 
     file_tree: filetree::FolderTree,
     // Add other sidebar components as needed
@@ -35,6 +36,7 @@ impl SideBar {
             show_folder_tree: false,
             show_settings: false,
             show_active_engines: false,
+            show_search: false,
             engines,
         }
     }
@@ -111,6 +113,23 @@ impl SideBar {
                                 self.show_settings = false;
                                 self.show_folder_tree = !self.show_folder_tree;
                             }
+
+                            ui.add_space(16.0); // Space between buttons
+
+                             if ui
+                                .add(
+                                    egui::Button::new(
+                                        RichText::new(egui_material_icons::icons::ICON_SEARCH)
+                                            .size(32.0),
+                                    )
+                                    .fill(egui::Color32::TRANSPARENT),
+                                )
+                                .on_hover_text("Open search")
+                                .clicked()
+                            {
+                                self.show_search = !self.show_search;
+                            }
+
                             ui.add_space(16.0); // Space between buttons
 
                             if ui

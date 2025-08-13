@@ -1,10 +1,13 @@
 use crate::models::notification::Notification;
 
 
+#[derive(Debug, Clone)]
 pub enum UIEventPane {
     GraphView(String),
     Text(String),
 }
+
+#[derive(Debug, Clone)]
 pub enum UIEvent {
     Update,
     Notification(Notification),
@@ -26,4 +29,6 @@ impl UIEventPane {
             UIEventPane::Text(path) => path,
         }
     }
+    
+    
 }

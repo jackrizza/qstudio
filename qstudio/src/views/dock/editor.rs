@@ -1,7 +1,6 @@
 use crate::{EngineEvent, Notification};
 use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
-use std::sync::Arc;
-use theme::Theme;
+use std::sync::{Arc, Mutex};
 
 use crate::Channels;
 
@@ -18,22 +17,19 @@ pub fn code_editor(
         // Save the buffer to the file
         if let Err(e) = std::fs::write(&file_path, buffer.clone()) {
             channels
-                .notification_tx
-                .lock()
-                .unwrap()
+                .senders()
+                .notification_tx()
                 .send(Notification::Error(format!("Failed to save file: {}", e)))
                 .unwrap();
         } else {
             channels
-                .engine_tx
-                .lock()
-                .unwrap()
-                .send(EngineEvent::UpdateSource(file_path.clone()))
+                .senders()
+                .engine_tx()
+                .send(Mutex::new(EngineEvent::UpdateSource(file_path.clone())))
                 .unwrap();
             channels
-                .notification_tx
-                .lock()
-                .unwrap()
+                .senders()
+                .notification_tx()
                 .send(Notification::Success(format!("Saved file: {}", file_path)))
                 .unwrap();
         }
@@ -42,15 +38,13 @@ pub fn code_editor(
     // If Command+R is pressed, restart connected engine
     if ctx.input(|i| i.key_pressed(egui::Key::R) && i.modifiers.command) {
         channels
-            .engine_tx
-            .lock()
-            .unwrap()
-            .send(EngineEvent::Restart(file_path.clone()))
+            .senders()
+            .engine_tx()
+            .send(Mutex::new(EngineEvent::Restart(file_path.clone())))
             .unwrap();
         channels
-            .notification_tx
-            .lock()
-            .unwrap()
+            .senders()
+            .notification_tx()
             .send(Notification::Success("Restarting engine...".to_string()))
             .unwrap();
     }

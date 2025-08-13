@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::{EngineEvent, UIEvent};
 use crate::models::ui::UIEventPane;
+use crate::{EngineEvent, UIEvent};
 use egui_material_icons::icon_button;
 use engine::EngineStatus;
 
@@ -58,10 +58,13 @@ pub fn active_engines_ui(
                                         {
                                             // Handle stop button click
                                             channels
+                                                .senders()
                                                 .engine_tx
                                                 .lock()
                                                 .unwrap()
-                                                .send(EngineEvent::Stop(file_path.clone()))
+                                                .send(Mutex::new(EngineEvent::Stop(
+                                                    file_path.clone(),
+                                                )))
                                                 .unwrap();
                                         }
                                     }
@@ -82,10 +85,13 @@ pub fn active_engines_ui(
                                         {
                                             // Handle start button click
                                             channels
+                                                .senders()
                                                 .engine_tx
                                                 .lock()
                                                 .unwrap()
-                                                .send(EngineEvent::Start(file_path.clone()))
+                                                .send(Mutex::new(EngineEvent::Start(
+                                                    file_path.clone(),
+                                                )))
                                                 .unwrap();
                                         }
                                     }
@@ -105,10 +111,11 @@ pub fn active_engines_ui(
                                 {
                                     // Handle restore button click
                                     channels
+                                        .senders()
                                         .engine_tx
                                         .lock()
                                         .unwrap()
-                                        .send(EngineEvent::Restart(file_path.clone()))
+                                        .send(Mutex::new(EngineEvent::Restart(file_path.clone())))
                                         .unwrap();
                                 }
 
@@ -142,12 +149,13 @@ pub fn active_engines_ui(
                                 {
                                     // Handle view button click
                                     channels
+                                        .senders()
                                         .ui_tx
                                         .lock()
                                         .unwrap()
-                                        .send(UIEvent::AddPane(
-                                            UIEventPane::GraphView(file_path.clone()),
-                                        ))
+                                        .send(UIEvent::AddPane(UIEventPane::GraphView(
+                                            file_path.clone(),
+                                        )))
                                         .unwrap();
                                 }
                             });

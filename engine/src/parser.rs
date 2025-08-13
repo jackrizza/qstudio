@@ -26,7 +26,6 @@
 
 use std::iter::Peekable;
 
-use polars::frame;
 
 use crate::lexer::Lexer;
 use crate::lexer::{Keyword, Token, TokenKind}; // assuming you expose Lexer in lexer.rs
