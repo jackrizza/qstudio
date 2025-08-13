@@ -2,11 +2,12 @@ use crate::models::engine::EngineEvent;
 use crate::Channels;
 use egui::Ui;
 use egui_dock::tab_viewer::OnCloseResponse;
-use egui_dock::{DockArea, DockState, TabIndex, TabViewer};
+use egui_dock::{DockArea, DockState, NodeIndex, SurfaceIndex, TabIndex, TabViewer};
 use engine::controllers::Output;
 use std::collections::HashMap;
 use std::fs;
 use std::sync::{Arc, Mutex};
+use crate::models::ui::UIEvent;
 
 // Add these imports for CommonMark markdown rendering
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
@@ -83,17 +84,35 @@ impl TabViewer for MyTabViewer {
             .unwrap()
             .send(Mutex::new(EngineEvent::Delete(_tab.title())));
 
-        let _ = self
-            .channels
-            .senders
-            .ui_tx
-            .lock()
-            .unwrap()
-            .send(crate::models::ui::UIEvent::RemovePane(
-                _tab.title().to_string(),
-            ));
+        let _ = self.channels.senders.ui_tx.lock().unwrap().send(
+            crate::models::ui::UIEvent::RemovePane(_tab.title().to_string()),
+        );
 
         OnCloseResponse::Close
+    }
+
+    // ← Add your custom items here
+    fn context_menu(
+        &mut self,
+        ui: &mut Ui,
+        tab: &mut Self::Tab,
+        _surface: SurfaceIndex,
+        _node: NodeIndex,
+    ) {
+        // Import SearchMode if not already imported
+        use crate::views::searchbar::SearchMode;
+
+
+        if ui.button("Ask ChatGPT").clicked() {
+            // Use self.title(tab) to get the tab title
+            let _ = self.channels
+                .senders
+                .ui_tx
+                .lock()
+                .unwrap()
+                .send(UIEvent::SearchBarMode(SearchMode::File(tab.title().to_string())));
+        }
+        // default Close / Move-to-window items still show alongside your items
     }
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {

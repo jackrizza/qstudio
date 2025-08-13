@@ -1,4 +1,5 @@
 use crate::models::notification::Notification;
+use crate::views::searchbar::SearchMode;
 
 
 #[derive(Debug, Clone)]
@@ -13,6 +14,7 @@ pub enum UIEvent {
     Notification(Notification),
     AddPane(UIEventPane),
     RemovePane(String),
+    SearchBarMode(SearchMode),
 }
 
 impl UIEventPane {

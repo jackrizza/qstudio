@@ -117,6 +117,11 @@ impl eframe::App for State {
                 UIEvent::Update => {
                     ctx.request_repaint();
                 }
+
+                UIEvent::SearchBarMode(mode) => {
+                    self.searchbar.search_mode = mode;
+                    self.sidebar.show_search = true;
+                }
             }
         }
 

@@ -13,8 +13,6 @@ use models::ui::UIEvent;
 use engine::controllers::Output;
 use engine::Engine;
 
-use tokio::select;
-
 pub struct Senders {
     pub ui_tx: Arc<Mutex<Sender<UIEvent>>>,
     pub notification_tx: Arc<Mutex<Sender<Notification>>>,

@@ -1,44 +1,16 @@
 use chat_gpt_rs::prelude::*;
-use dotenv::dotenv;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::{env, fs};
 
-use crate::models::ui;
+use egui_material_icons::icons::ICON_FILE_UPLOAD;
+use std::path::Path;
 
-const WRAPPER_PROMPT: &str = r#"
-You are a JSON-only API.  
-Respond with a single valid JSON object that parses without errors.  
-Never include text outside JSON, no markdown fences, no comments.
-
-Rules:
-1) "status" MUST be one of: "markdown", "event", "error".
-2) For "markdown": include only a "body" string containing **fully prewritten markdown**. Escape quotes/newlines for valid JSON.
-3) For "event": include:
-   - "name": string (machine-friendly identifier)
-   - "payload": object (structured data for the app)
-4) For "error": include:
-   - "code": string (stable, machine-parsable)
-   - "message": string (human-readable)
-   - "details": object | null
-5) Always include "meta":
-   - "request_id": string (echo or synthesize an ID if not provided)
-   - "timestamp": ISO-8601 string (UTC)
-6) No trailing commas. Use null for unused fields.
-
-Schema (shape, not JSON Schema):
-{
-  "status": "markdown" | "event" | "error",
-  "markdown": { "body": string } | null,
-  "event": { "name": string, "payload": object } | null,
-  "error": { "code": string, "message": string, "details": object|null } | null,
-  "meta": { "request_id": string, "timestamp": string }
-}
-
-Now respond to the following request as JSON only:
-"#;
+const WRAPPER_PROMPT: &str = include_str!("../../../prompts/text_wrapper_prompt.txt");
+const LANGUAGE_MANUAL: &str = include_str!("../../../qql.md");
+const LANGUAGE_WRAPPER: &str = include_str!("../../../prompts/code_wrapper_prompt.txt");
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -134,7 +106,21 @@ impl Answered {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SearchMode {
+    Text,
+    File(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DisplayType {
+    Json,
+    Markdown,
+}
+
 pub struct SearchBar {
+    pub search_mode: SearchMode,
+    pub display_type: DisplayType,
     pub query: String,
     expanded: bool,
     answer: Arc<Mutex<Answered>>,
@@ -143,6 +129,8 @@ pub struct SearchBar {
 impl SearchBar {
     pub fn new() -> Self {
         SearchBar {
+            search_mode: SearchMode::Text,
+            display_type: DisplayType::Json,
             query: String::new(),
             expanded: false,
             answer: Arc::new(Mutex::new(Answered::None)),
@@ -152,6 +140,7 @@ impl SearchBar {
     pub fn reset(&mut self) {
         self.query.clear();
         self.expanded = false;
+        self.search_mode = SearchMode::Text;
     }
 
     fn window_height(&self, ctx: &egui::Context) -> f32 {
@@ -164,16 +153,48 @@ impl SearchBar {
 
     fn chat_gpt_blocking_on_seperate_thread(&mut self) {
         let query = self.query.clone();
-        let mut answer = String::new();
 
         let env_token = env::var("CHAT_GPT_API_KEY").unwrap_or_else(|_| "YOUR_API_KEY".into());
         let token = Token::new(env_token);
         let api = Api::new(token);
+
+        let mut content = String::new();
+
+        if let SearchMode::File(_) = self.search_mode {
+            self.display_type = DisplayType::Markdown;
+        } else {
+            self.display_type = DisplayType::Json;
+        }
+
+        log::info!("Search Mode: {:?}", self.search_mode);
+        if let SearchMode::File(ref file_path) = self.search_mode {
+            if let Some(file_name) = Path::new(file_path).file_name() {
+                fs::read_to_string(file_path)
+                    .map(|file_content| {
+                        content.push_str(LANGUAGE_WRAPPER);
+                        content.push_str(LANGUAGE_MANUAL);
+                        content.push_str(&format!("File: {}\n", file_name.to_string_lossy()));
+                        content.push_str(&file_content);
+                    })
+                    .unwrap_or_else(|_| {
+                        log::error!("Failed to read file: {}", file_path);
+                        content.push_str(&format!("Failed to read file: {}\n", file_path));
+                    });
+            }
+        } else {
+            content.push_str(&format!("{}\n", WRAPPER_PROMPT));
+        }
+
+        content.push_str("USER PROMPT : ");
+        content.push_str(&query);
+
+        fs::write("exported_prompt.txt", &content).unwrap();
+
         let request = Request {
             model: Model::Gpt4,
             messages: vec![Message {
                 role: "user".to_string(),
-                content: format!("{}\n{}", WRAPPER_PROMPT, query),
+                content: content,
             }],
             ..Default::default()
         };
@@ -184,16 +205,18 @@ impl SearchBar {
         }
 
         let answer_arc = Arc::clone(&self.answer);
+        let display_type = self.display_type.clone();
         thread::spawn(move || {
-            let string = tokio::runtime::Builder::new_current_thread()
+            tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .unwrap()
                 .block_on(async {
                     let res = api.chat(request).await;
-                    match res {
+                    let answer = match res {
                         Ok(response) => {
                             if let Some(answer) = response.choices.first() {
+                                log::info!("Received answer: {:#?}", answer.message.content);
                                 answer.message.content.clone()
                             } else {
                                 "No answer received".to_string()
@@ -203,17 +226,39 @@ impl SearchBar {
                             eprintln!("Error: {}", e);
                             "Error occurred while fetching answer".to_string()
                         }
-                    }
-                });
+                    };
 
-            let mut answer_lock = answer_arc.lock().unwrap();
-            match serde_json::from_str::<GptApiResponse>(&string) {
-                Ok(parsed_response) => *answer_lock = Answered::Yes(parsed_response),
-                Err(e) => {
-                    eprintln!("Failed to parse response: {}", e);
-                    *answer_lock = Answered::Error(format!("Failed to parse response: {}", e));
-                }
-            }
+                    if display_type == DisplayType::Json {
+                        let parsed = serde_json::from_str::<GptApiResponse>(&answer);
+                        match parsed {
+                            Ok(parsed_response) => {
+                                log::info!("Parsed response: {:#?}", parsed_response);
+                                let mut answer_lock = answer_arc.lock().unwrap();
+                                *answer_lock = Answered::Yes(parsed_response);
+                            }
+                            Err(e) => {
+                                log::error!("Failed to parse JSON response: {}", e);
+                                let mut answer_lock = answer_arc.lock().unwrap();
+                                *answer_lock = Answered::Error(format!(
+                                    "Failed to parse JSON response: {}",
+                                    e
+                                ));
+                            }
+                        }
+                    } else {
+                        let mut answer_lock = answer_arc.lock().unwrap();
+                        *answer_lock = Answered::Yes(GptApiResponse {
+                            status: Status::Markdown,
+                            markdown: Some(Markdown { body: answer }),
+                            event: None,
+                            error: None,
+                            meta: Meta {
+                                request_id: "N/A".to_string(),
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                            },
+                        });
+                    }
+                })
         });
     }
 
@@ -238,11 +283,22 @@ impl SearchBar {
                 let desired_width = window_width * 0.4;
                 ui.set_min_width(desired_width);
 
+                if let SearchMode::File(file_path) = &self.search_mode {
+                    let file_name = Path::new(file_path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(file_path);
+
+                    ui.horizontal(|ui| {
+                        ui.label(ICON_FILE_UPLOAD);
+                        ui.label(file_name);
+                    });
+                }
                 let response = ui
                     .add(egui::TextEdit::singleline(&mut self.query).desired_width(f32::INFINITY));
 
                 if self.expanded {
-                    let mut answer_lock = self.answer.lock().unwrap();
+                    let answer_lock = self.answer.lock().unwrap();
                     ui.add_space(8.0);
                     // Set font size to 12
                     let mut style = (*ctx.style()).clone();
