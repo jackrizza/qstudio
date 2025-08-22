@@ -1,16 +1,5 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-
-use crate::models::ui::UIEventPane;
-use crate::{EngineEvent, UIEvent};
-use egui_material_icons::icon_button;
-use engine::EngineStatus;
-
-use crate::Channels;
-use egui::RichText;
-
 pub fn settings_ui(ui: &mut egui::Ui) {
-    egui::Frame::none()
+    egui::Frame::new()
         .inner_margin(0.0)
         .outer_margin(0.0)
         .show(ui, |ui| {

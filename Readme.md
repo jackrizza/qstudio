@@ -4,7 +4,7 @@
 
 ---
 
-![Q Studio Screenshot](screenshots/qstudiov2.png)
+![Q Studio Screenshot](screenshots/qstudiov4.png)
 
 ## Overview
 

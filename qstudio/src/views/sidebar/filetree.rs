@@ -1,6 +1,6 @@
 use crate::models::ui::UIEvent;
 use std::fs;
-use std::sync::{mpsc::Sender, Arc};
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub enum Fs {
@@ -8,18 +8,24 @@ pub enum Fs {
     File { name: String, file_path: String },
 }
 
-use egui::{self, menu, Button};
-
 use crate::Channels;
 #[derive(Debug, Clone)]
 pub struct FolderTree {
     file_system: Arc<Fs>,
+    file_path: String,
 }
 
 impl FolderTree {
     pub fn new(file_path: String) -> Self {
         let file_system = Arc::new(Self::build_fs_tree(&std::path::Path::new(&file_path)));
-        FolderTree { file_system }
+        FolderTree {
+            file_system,
+            file_path,
+        }
+    }
+
+    pub fn refresh(&mut self) {
+        self.file_system = Arc::new(Self::build_fs_tree(&std::path::Path::new(&self.file_path)));
     }
 
     fn build_fs_tree(path: &std::path::Path) -> Fs {
@@ -80,7 +86,7 @@ impl FolderTree {
 
 impl FolderTree {
     pub fn ui(&mut self, ui: &mut egui::Ui, channels: Arc<Channels>) {
-        egui::Frame::none()
+        egui::Frame::new()
             .inner_margin(0.0)
             .outer_margin(0.0)
             .show(ui, |ui| {

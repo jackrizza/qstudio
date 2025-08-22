@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::{env, fs};
 
-use egui_material_icons::icons::ICON_FILE_UPLOAD;
+use egui_material_icons::icons::ICON_FILE_OPEN;
 use std::path::Path;
 
 const WRAPPER_PROMPT: &str = include_str!("../../../prompts/text_wrapper_prompt.txt");
@@ -112,17 +112,10 @@ pub enum SearchMode {
     File(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DisplayType {
-    Json,
-    Markdown,
-}
-
 pub struct SearchBar {
     pub search_mode: SearchMode,
-    pub display_type: DisplayType,
     pub query: String,
-    expanded: bool,
+    pub expanded: bool,
     answer: Arc<Mutex<Answered>>,
 }
 
@@ -130,7 +123,6 @@ impl SearchBar {
     pub fn new() -> Self {
         SearchBar {
             search_mode: SearchMode::Text,
-            display_type: DisplayType::Json,
             query: String::new(),
             expanded: false,
             answer: Arc::new(Mutex::new(Answered::None)),
@@ -159,12 +151,6 @@ impl SearchBar {
         let api = Api::new(token);
 
         let mut content = String::new();
-
-        if let SearchMode::File(_) = self.search_mode {
-            self.display_type = DisplayType::Markdown;
-        } else {
-            self.display_type = DisplayType::Json;
-        }
 
         log::info!("Search Mode: {:?}", self.search_mode);
         if let SearchMode::File(ref file_path) = self.search_mode {
@@ -205,7 +191,6 @@ impl SearchBar {
         }
 
         let answer_arc = Arc::clone(&self.answer);
-        let display_type = self.display_type.clone();
         thread::spawn(move || {
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -228,35 +213,20 @@ impl SearchBar {
                         }
                     };
 
-                    if display_type == DisplayType::Json {
-                        let parsed = serde_json::from_str::<GptApiResponse>(&answer);
-                        match parsed {
-                            Ok(parsed_response) => {
-                                log::info!("Parsed response: {:#?}", parsed_response);
-                                let mut answer_lock = answer_arc.lock().unwrap();
-                                *answer_lock = Answered::Yes(parsed_response);
-                            }
-                            Err(e) => {
-                                log::error!("Failed to parse JSON response: {}", e);
-                                let mut answer_lock = answer_arc.lock().unwrap();
-                                *answer_lock = Answered::Error(format!(
-                                    "Failed to parse JSON response: {}",
-                                    e
-                                ));
-                            }
+                    let answer = answer.trim().replace("\r", "\\r").replace("\n", "\\n"); // escape newlines
+                    let parsed = serde_json::from_str::<GptApiResponse>(&answer);
+                    match parsed {
+                        Ok(parsed_response) => {
+                            log::info!("Parsed response: {:#?}", parsed_response);
+                            let mut answer_lock = answer_arc.lock().unwrap();
+                            *answer_lock = Answered::Yes(parsed_response);
                         }
-                    } else {
-                        let mut answer_lock = answer_arc.lock().unwrap();
-                        *answer_lock = Answered::Yes(GptApiResponse {
-                            status: Status::Markdown,
-                            markdown: Some(Markdown { body: answer }),
-                            event: None,
-                            error: None,
-                            meta: Meta {
-                                request_id: "N/A".to_string(),
-                                timestamp: chrono::Utc::now().to_rfc3339(),
-                            },
-                        });
+                        Err(e) => {
+                            log::error!("Failed to parse JSON response: {}", e);
+                            let mut answer_lock = answer_arc.lock().unwrap();
+                            *answer_lock =
+                                Answered::Error(format!("Failed to parse JSON response: {}", e));
+                        }
                     }
                 })
         });
@@ -290,7 +260,7 @@ impl SearchBar {
                         .unwrap_or(file_path);
 
                     ui.horizontal(|ui| {
-                        ui.label(ICON_FILE_UPLOAD);
+                        ui.label(ICON_FILE_OPEN);
                         ui.label(file_name);
                     });
                 }
@@ -323,6 +293,12 @@ impl SearchBar {
                     println!("Search query: {}", self.query);
                     // Or trigger your search logic here
                 }
+
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.reset();
+                }
+
+                
             });
     }
 }

@@ -1,20 +1,14 @@
 use egui::RichText;
-use egui_material_icons::{
-    icon_button,
-    icons::{ICON_ADD, ICON_FAVORITE, ICON_IMAGE, ICON_REMOVE},
-};
 
 use egui_flex::{Flex, FlexAlignContent, FlexItem};
 
-use std::{hash::Hash, sync::Arc};
-use std::sync::mpsc::Sender;
 use crate::Channels;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::Mutex;
 
-
-mod filetree;
 mod active_engines;
+mod filetree;
 mod settings;
 
 #[derive(Debug, Clone)]
@@ -26,11 +20,14 @@ pub struct SideBar {
 
     file_tree: filetree::FolderTree,
     // Add other sidebar components as needed
-    engines : Arc<Mutex<HashMap<String, Arc<Mutex<engine::Engine>>>>>,
+    engines: Arc<Mutex<HashMap<String, Arc<Mutex<engine::Engine>>>>>,
 }
 
 impl SideBar {
-    pub fn new(file_path: String, engines: Arc<Mutex<HashMap<String, Arc<Mutex<engine::Engine>>>>>) -> Self {
+    pub fn new(
+        file_path: String,
+        engines: Arc<Mutex<HashMap<String, Arc<Mutex<engine::Engine>>>>>,
+    ) -> Self {
         SideBar {
             file_tree: filetree::FolderTree::new(file_path),
             show_folder_tree: false,
@@ -51,6 +48,10 @@ impl SideBar {
 }
 
 impl SideBar {
+    pub fn fs_refresh(&mut self) {
+        self.file_tree.refresh();
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui, channels: Arc<Channels>) {
         let primary_background = if ui.visuals().dark_mode {
             egui::Color32::from_rgb(0x2c, 0x2c, 0x2c)
@@ -58,17 +59,11 @@ impl SideBar {
             egui::Color32::LIGHT_GRAY
         };
 
-        let secondary_background = if ui.visuals().dark_mode {
-            egui::Color32::from_black_alpha(192)
-        } else {
-            egui::Color32::from_white_alpha(192)
-        };
-
         Flex::horizontal()
             .align_content(FlexAlignContent::Stretch)
             .show(ui, |flex| {
                 flex.add_ui(FlexItem::new().grow(1.0), |ui| {
-                    egui::Frame::none().fill(primary_background).show(ui, |ui| {
+                    egui::Frame::new().fill(primary_background).show(ui, |ui| {
                         ui.set_max_width(64.0);
                         ui.set_min_width(64.0);
                         ui.vertical_centered(|ui| {
@@ -116,7 +111,7 @@ impl SideBar {
 
                             ui.add_space(16.0); // Space between buttons
 
-                             if ui
+                            if ui
                                 .add(
                                     egui::Button::new(
                                         RichText::new(egui_material_icons::icons::ICON_SEARCH)
@@ -161,7 +156,11 @@ impl SideBar {
                         settings::settings_ui(ui);
                     } else if self.show_active_engines {
                         ui.add_space(8.0);
-                        active_engines::active_engines_ui(ui, &self.engines.lock().unwrap(), channels);
+                        active_engines::active_engines_ui(
+                            ui,
+                            &self.engines.lock().unwrap(),
+                            channels,
+                        );
                     }
                 });
             });

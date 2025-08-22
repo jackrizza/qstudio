@@ -4,31 +4,29 @@ use env_logger;
 
 use eframe::*;
 use egui_notify::Toasts;
+use qstudiov3::tick::Tick;
+
+use std::thread;
 
 use engine::controllers::Output;
 use engine::Engine;
-use qstudiov3::models::notification::{self, Notification};
+use qstudiov3::models::notification::Notification;
+use qstudiov3::models::ui::UIEvent;
 use qstudiov3::utils::match_file_extension_for_pane_type;
+use qstudiov3::Channels;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::thread;
-
-use qstudiov3::models::engine::EngineEvent;
-use qstudiov3::models::ui::UIEvent;
-use qstudiov3::{Channels, Receivers, Senders};
 
 use qstudiov3::views::dock::{MyTabViewer, PaneDock};
-use qstudiov3::views::searchbar::SearchBar;
+use qstudiov3::views::searchbar::{SearchBar, SearchMode};
 use qstudiov3::views::sidebar::SideBar;
 
 use dotenv::dotenv;
-use std::env;
 
 pub struct State {
     notification: Toasts,
     engine: Arc<Mutex<HashMap<String, Arc<Mutex<Engine>>>>>,
-    dataframes: Arc<Mutex<HashMap<String, Arc<Output>>>>,
-
+    // dataframes: Arc<Mutex<HashMap<String, Arc<Output>>>>,
     channels: Arc<Channels>,
 
     sidebar: SideBar,
@@ -36,6 +34,8 @@ pub struct State {
 
     tab: MyTabViewer,
     dock: PaneDock,
+
+    tick: Arc<Tick>,
 }
 
 impl State {
@@ -43,20 +43,22 @@ impl State {
         channels: Arc<Channels>,
         dataframes: Arc<Mutex<HashMap<String, Arc<Output>>>>,
         engine: Arc<Mutex<HashMap<String, Arc<Mutex<Engine>>>>>,
+        tick: Arc<Tick>,
     ) -> Self {
         let tab = MyTabViewer::new(Arc::clone(&dataframes), Arc::clone(&channels));
         let sidebar = SideBar::new(".".to_string(), Arc::clone(&engine));
         State {
             notification: Toasts::default(),
             engine,
-            dataframes, // Initialize with an empty HashMap
-
+            // dataframes, // Initialize with an empty HashMap
             channels,
 
             sidebar,
             tab,
             dock: PaneDock::new(),
             searchbar: SearchBar::new(),
+
+            tick,
         }
     }
 
@@ -98,6 +100,18 @@ impl eframe::App for State {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // self.channels.log_channel_events();
 
+        if ctx.input(|i| i.key_pressed(egui::Key::I) && i.modifiers.command) {
+            let _ = self
+                .channels
+                .senders()
+                .ui_tx()
+                .send(UIEvent::ToggleSearchBar);
+        }
+
+        if self.tick.get() % 10 == 0 {
+            self.sidebar.fs_refresh();
+        }
+
         if let Ok(event) = self.channels.receivers.ui_rx() {
             match event {
                 UIEvent::Notification(notification) => {
@@ -121,6 +135,10 @@ impl eframe::App for State {
                 UIEvent::SearchBarMode(mode) => {
                     self.searchbar.search_mode = mode;
                     self.sidebar.show_search = true;
+                }
+
+                UIEvent::ToggleSearchBar => {
+                    self.sidebar.show_search = !self.sidebar.show_search;
                 }
             }
         }
@@ -192,6 +210,9 @@ fn main() -> eframe::Result<()> {
     let mut channels = Channels::new();
     let dataframes: Arc<Mutex<HashMap<String, Arc<Output>>>> = Arc::new(Mutex::new(HashMap::new()));
     let engine = Arc::new(Mutex::new(HashMap::new()));
+    let tick = Arc::new(Tick::new(0));
+
+    tick.tick_thread();
 
     channels.notification_thread();
     channels.engine_thread(Arc::clone(&engine), Arc::clone(&dataframes));
@@ -205,6 +226,7 @@ fn main() -> eframe::Result<()> {
                 Arc::new(channels),
                 Arc::clone(&dataframes),
                 Arc::clone(&engine),
+                Arc::clone(&tick),
             )))
         }),
     )

@@ -1,10 +1,10 @@
 use crate::models::notification::Notification;
 use crate::views::searchbar::SearchMode;
 
-
 #[derive(Debug, Clone)]
 pub enum UIEventPane {
     GraphView(String),
+    TableView(String),
     Text(String),
 }
 
@@ -15,22 +15,23 @@ pub enum UIEvent {
     AddPane(UIEventPane),
     RemovePane(String),
     SearchBarMode(SearchMode),
+    ToggleSearchBar,
 }
 
 impl UIEventPane {
     pub fn title(&self) -> &str {
         match self {
-            UIEventPane::GraphView(title) => title.split('/').last().unwrap_or("Graph View"),
-            UIEventPane::Text(title) => title.split('/').last().unwrap_or("Text Editor"),
+            UIEventPane::GraphView(title)
+            | UIEventPane::Text(title)
+            | UIEventPane::TableView(title) => title.split('/').last().unwrap_or("Table View"),
         }
     }
 
     pub fn file_path(&self) -> &str {
         match self {
-            UIEventPane::GraphView(path) => path,
-            UIEventPane::Text(path) => path,
+            UIEventPane::GraphView(path)
+            | UIEventPane::Text(path)
+            | UIEventPane::TableView(path) => path,
         }
     }
-    
-    
 }

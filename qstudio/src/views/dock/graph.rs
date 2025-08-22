@@ -1,8 +1,5 @@
 use egui::{Color32, Stroke, TextStyle};
-use egui_plot::{
-    uniform_grid_spacer, Bar, BarChart, BoxElem, BoxPlot, Corner, Legend, Line, Plot, PlotPoint,
-    PlotPoints, Polygon,
-};
+use egui_plot::{Bar, BarChart, BoxElem, BoxPlot, Corner, Legend, Line, Plot, PlotPoints, Polygon};
 use engine::parser::{DrawType, Graph};
 
 pub struct DrawGraph(pub Graph);
@@ -28,7 +25,7 @@ impl DrawGraph {
                 .unwrap_or(0.0))
             / n;
 
-        let step = move |_: egui_plot::GridInput| {
+        let _step = move |_: egui_plot::GridInput| {
             [step_size.max(1.0), step_size.max(1.0), step_size.max(1.0)]
         };
 

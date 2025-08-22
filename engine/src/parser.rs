@@ -26,7 +26,6 @@
 
 use std::iter::Peekable;
 
-
 use crate::lexer::Lexer;
 use crate::lexer::{Keyword, Token, TokenKind}; // assuming you expose Lexer in lexer.rs
 use std::collections::HashMap;
@@ -254,7 +253,7 @@ impl<'a> Parser<'a> {
         let trade = self.parse_trade_section()?;
         let graph = match self.parse_graph_section() {
             Ok(g) => g,
-            Err(e) => None,
+            Err(_e) => None,
         };
         Ok(Query {
             frame,
@@ -334,13 +333,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expect_eof(&mut self) -> Result<(), ParseError> {
-        match self.next_token() {
-            Err(ParseError { line: 0, .. }) => Ok(()), // reached iterator end
-            Ok(tok) => Err(ParseError::expected(&tok, "EOF")),
-            Err(e) => Err(e),
-        }
-    }
+    // fn expect_eof(&mut self) -> Result<(), ParseError> {
+    //     match self.next_token() {
+    //         Err(ParseError { line: 0, .. }) => Ok(()), // reached iterator end
+    //         Ok(tok) => Err(ParseError::expected(&tok, "EOF")),
+    //         Err(e) => Err(e),
+    //     }
+    // }
 
     /* ---------------------- Model‑section parsing ---------------------- */
 
@@ -497,12 +496,14 @@ impl<'a> Parser<'a> {
                 | Keyword::Multiply
                 | Keyword::Divide
                 | Keyword::Sma
-                | Keyword::Volatility),
+                | Keyword::Volatility
+                | Keyword::DoubleVolatility
+                | Keyword::LinearRegression),
             ) => k,
             _ => {
                 return Err(ParseError::expected(
                     &op_tok,
-                    "CALC operation (DIFFERENCE | SUM | MULTIPLY | DIVIDE | SMA | VOLATILITY)",
+                    "CALC operation (DIFFERENCE | SUM | MULTIPLY | DIVIDE | SMA | VOLATILITY | LINEAR_REGRESSION | DOUBLE_VOLATILITY)",
                 ))
             }
         };

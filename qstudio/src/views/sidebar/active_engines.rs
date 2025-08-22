@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 
 use crate::models::ui::UIEventPane;
 use crate::{EngineEvent, UIEvent};
-use egui_material_icons::icon_button;
 use engine::EngineStatus;
 
 use crate::Channels;
@@ -14,7 +13,7 @@ pub fn active_engines_ui(
     engines: &HashMap<String, Arc<Mutex<engine::Engine>>>,
     channels: Arc<Channels>,
 ) {
-    egui::Frame::none()
+    egui::Frame::new()
         .inner_margin(0.0)
         .outer_margin(0.0)
         .show(ui, |ui| {
@@ -30,7 +29,21 @@ pub fn active_engines_ui(
                         .default_open(true)
                         .show(ui, |ui| {
                             let engine = engine.lock().unwrap();
-                            ui.label(format!("Status: {:?}", engine.status()));
+                            match engine.status().clone() {
+                                EngineStatus::Running => {
+                                    ui.label("Status: Running");
+                                }
+                                EngineStatus::Stopped => {
+                                    ui.label("Status: Stopped");
+                                }
+                                EngineStatus::Error(ref e) => {
+                                    ui.label(
+                                        RichText::new(format!("Status: Error"))
+                                            .color(egui::Color32::RED),
+                                    );
+                                    ui.label(RichText::new(format!("{}", e)).strong());
+                                }
+                            };
                             match engine.analyze() {
                                 Ok(_) => {
                                     ui.label("Analysis successful.");
@@ -154,6 +167,30 @@ pub fn active_engines_ui(
                                         .lock()
                                         .unwrap()
                                         .send(UIEvent::AddPane(UIEventPane::GraphView(
+                                            file_path.clone(),
+                                        )))
+                                        .unwrap();
+                                }
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            RichText::new(
+                                                egui_material_icons::icons::ICON_TABLE_VIEW,
+                                            )
+                                            .size(16.0),
+                                        )
+                                        .fill(egui::Color32::TRANSPARENT),
+                                    )
+                                    .on_hover_text("View engine data")
+                                    .clicked()
+                                {
+                                    // Handle view button click
+                                    channels
+                                        .senders()
+                                        .ui_tx
+                                        .lock()
+                                        .unwrap()
+                                        .send(UIEvent::AddPane(UIEventPane::TableView(
                                             file_path.clone(),
                                         )))
                                         .unwrap();

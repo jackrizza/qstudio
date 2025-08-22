@@ -5,6 +5,8 @@ use std::thread;
 pub mod models;
 pub mod utils;
 pub mod views;
+pub mod tick;
+pub mod ff;
 
 use models::engine::EngineEvent;
 use models::notification::Notification;

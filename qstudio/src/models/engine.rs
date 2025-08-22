@@ -12,7 +12,7 @@ pub enum EngineEvent {
     Restart(String),
     UpdateSource(String),
     Delete(String),
-    None
+    None,
 }
 
 impl EngineEvent {
@@ -40,36 +40,22 @@ impl EngineEvent {
             EngineEvent::Start(file_path) => {
                 if let Some(engine) = engine.lock().unwrap().get(&file_path) {
                     let mut engine = engine.lock().unwrap();
-                    match engine.analyze() {
-                        Ok(_) => {
-                            if let Ok(out) = engine.run().await {
-                                dataframes
-                                    .lock()
-                                    .unwrap()
-                                    .insert(file_path.clone(), Arc::new(out));
-                            }
-                            channels
-                                .notification_tx
-                                .lock()
-                                .unwrap()
-                                .send(Notification::Success(format!(
-                                    "Engine started for file: {}",
-                                    file_path
-                                )))
-                                .unwrap();
-                        }
-                        Err(e) => {
-                            channels
-                                .notification_tx
-                                .lock()
-                                .unwrap()
-                                .send(Notification::Error(format!(
-                                    "Failed to start engine: {}",
-                                    e
-                                )))
-                                .unwrap();
-                        }
+
+                    if let Ok(out) = engine.run().await {
+                        dataframes
+                            .lock()
+                            .unwrap()
+                            .insert(file_path.clone(), Arc::new(out));
                     }
+                    channels
+                        .notification_tx
+                        .lock()
+                        .unwrap()
+                        .send(Notification::Success(format!(
+                            "Engine started for file: {}",
+                            file_path
+                        )))
+                        .unwrap();
                 } else {
                     channels
                         .notification_tx
@@ -143,38 +129,16 @@ impl EngineEvent {
 
             EngineEvent::Restart(file_path) => {
                 if let Some(engine) = engine.lock().unwrap().get(&file_path) {
-                    let engine = engine.lock().unwrap();
-                    if let Err(e) = engine.analyze() {
+                    let mut engine = engine.lock().unwrap();
+                    if let Ok(out) = engine.restart().await {
                         channels
-                            .notification_tx
-                            .lock()
-                            .unwrap()
-                            .send(Notification::Error(format!(
-                                "Failed to analyze engine: {}",
-                                e
-                            )))
-                            .unwrap();
-                    } else {
-                        channels
-                            .notification_tx
-                            .lock()
-                            .unwrap()
+                            .notification_tx()
                             .send(Notification::Success(format!(
                                 "Engine restarted for file: {}",
                                 file_path
                             )))
                             .unwrap();
                     }
-                } else {
-                    channels
-                        .notification_tx
-                        .lock()
-                        .unwrap()
-                        .send(Notification::Error(format!(
-                            "No engine found for file: {}",
-                            file_path
-                        )))
-                        .unwrap();
                 }
             }
             _ => {}

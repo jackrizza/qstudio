@@ -1,5 +1,3 @@
-use super::*;
-
 use polars::frame::DataFrame;
 use polars::prelude::*;
 use time::OffsetDateTime;
@@ -217,6 +215,7 @@ pub fn trade_over_data(trade: &TradeSection, df: DataFrame) -> Result<DataFrame,
 }
 
 pub fn action_over_data(action: &ActionSection, df: DataFrame) -> Result<DataFrame, String> {
+    let mut df = df.clone();
     let field = action.fields.clone();
 
     let timestamp = df
@@ -242,7 +241,18 @@ pub fn action_over_data(action: &ActionSection, df: DataFrame) -> Result<DataFra
     for calc in calcs {
         let calculation = Calculation::new(calc.clone());
 
-        let calc_df = calculation.calculate(&df)?;
+        let calc_df = match calculation.calculate(&df) {
+            Ok(result) => result,
+            Err(e) => {
+                log::error!("Failed to calculate: {}", e);
+                return Err(format!("Failed to calculate: {}", e));
+            }
+        };
+        // Append calc_df columns to the main DataFrame
+        for col in calc_df.get_columns() {
+            df.with_column(col.clone())
+                .map_err(|e| format!("Failed to append column: {}", e))?;
+        }
         columns.extend_from_slice(calc_df.get_columns());
     }
 

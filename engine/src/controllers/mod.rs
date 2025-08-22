@@ -25,6 +25,13 @@ impl Output {
             _ => None,
         }
     }
+
+    pub fn get_tables(&self) -> Option<&HashMap<String, DataFrame>> {
+        match self {
+            Output::Data { tables, .. } => Some(tables),
+            _ => None,
+        }
+    }
 }
 
 impl Default for Output {

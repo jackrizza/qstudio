@@ -2,9 +2,14 @@ use crate::views::dock::PaneType;
 
 pub fn match_file_extension_for_pane_type(
     pane_type: &crate::models::ui::UIEventPane,
-    file_name: &str,
+    _file_name: &str,
 ) -> PaneType {
     match pane_type {
+
+        crate::models::ui::UIEventPane::TableView(file_name) => {
+            PaneType::TableView(file_name.into())
+        }
+
         crate::models::ui::UIEventPane::GraphView(file_name) => {
             PaneType::GraphView(file_name.into())
         }

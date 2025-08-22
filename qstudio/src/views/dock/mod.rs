@@ -1,4 +1,5 @@
 use crate::models::engine::EngineEvent;
+use crate::models::ui::UIEvent;
 use crate::Channels;
 use egui::Ui;
 use egui_dock::tab_viewer::OnCloseResponse;
@@ -7,7 +8,6 @@ use engine::controllers::Output;
 use std::collections::HashMap;
 use std::fs;
 use std::sync::{Arc, Mutex};
-use crate::models::ui::UIEvent;
 
 // Add these imports for CommonMark markdown rendering
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
@@ -17,6 +17,9 @@ use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 mod editor;
 mod graph;
 mod markdown;
+mod table;
+
+use table::show_dataframe_table;
 
 // Use PaneType as your Tab data
 #[derive(Debug, Clone)]
@@ -25,6 +28,7 @@ pub enum PaneType {
     Blank,
     CodeEditor(String),
     GraphView(String),
+    TableView(String),
 }
 
 impl PaneType {
@@ -34,6 +38,7 @@ impl PaneType {
             PaneType::Blank => "Untitled".to_string(),
             PaneType::CodeEditor(title) => title.clone(),
             PaneType::GraphView(title) => format!("Graph -  {}", title.clone()),
+            PaneType::TableView(title) => format!("Table -  {}", title.clone()),
         }
     }
 }
@@ -102,15 +107,17 @@ impl TabViewer for MyTabViewer {
         // Import SearchMode if not already imported
         use crate::views::searchbar::SearchMode;
 
-
         if ui.button("Ask ChatGPT").clicked() {
             // Use self.title(tab) to get the tab title
-            let _ = self.channels
+            let _ = self
+                .channels
                 .senders
                 .ui_tx
                 .lock()
                 .unwrap()
-                .send(UIEvent::SearchBarMode(SearchMode::File(tab.title().to_string())));
+                .send(UIEvent::SearchBarMode(SearchMode::File(
+                    tab.title().to_string(),
+                )));
         }
         // default Close / Move-to-window items still show alongside your items
     }
@@ -142,6 +149,20 @@ impl TabViewer for MyTabViewer {
                     self.get_mut_buffer(file_name),
                     channels,
                 );
+            }
+            PaneType::TableView(file_name) => {
+                let dataframes = Arc::clone(&self.dataframes);
+                if let Some(out) = dataframes.lock().unwrap().get(file_name) {
+                    if let Some(table) = out.get_tables() {
+                        for (df_name, df) in table {
+                            egui::CollapsingHeader::new(df_name).show(ui, |ui| {
+                                show_dataframe_table(ui, df);
+                            });
+                        }
+                    } else {
+                        ui.label("No table data available.");
+                    }
+                };
             }
             PaneType::GraphView(file_name) => {
                 let dataframes = Arc::clone(&self.dataframes);

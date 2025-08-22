@@ -19,6 +19,7 @@ pub enum Keyword {
     Difference,
     Sma,
     Volatility,
+    DoubleVolatility,
     Sum,
     Multiply,
     Divide,
@@ -37,6 +38,7 @@ pub enum Keyword {
     Frame,
     Hold,
     Xaxis,
+    LinearRegression,
 }
 
 impl Keyword {
@@ -75,7 +77,8 @@ impl Keyword {
             "HOLD" => Some(Hold),
             "FRAME" => Some(Frame),
             "XAXIS" => Some(Xaxis),
-
+            "LINEAR_REGRESSION" => Some(LinearRegression),
+            "DOUBLE_VOLATILITY" => Some(DoubleVolatility),
             _ => None,
         }
     }

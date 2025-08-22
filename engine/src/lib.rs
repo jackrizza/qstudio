@@ -9,7 +9,7 @@ use parser::Graph;
 
 use std::collections::HashMap;
 
-use parser::{parse, Query};
+use parser::{parse, Frame, Query};
 use polars::frame::DataFrame;
 use std::fs;
 
@@ -32,6 +32,16 @@ struct CodeDiff {
     frames: bool,
     graph: bool,
     trades: bool,
+}
+
+impl CodeDiff {
+    pub fn new() -> Self {
+        CodeDiff {
+            frames: false,
+            graph: false,
+            trades: false,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -89,30 +99,15 @@ impl Engine {
     pub async fn update_code(&mut self) -> Result<Output, String> {
         let code = fs::read_to_string(&self.file_path)
             .map_err(|e| format!("Failed to read file: {}", e))?;
+
         match parse(&code) {
             Ok(query) => {
-                let mut cd = CodeDiff {
-                    frames: false,
-                    graph: false,
-                    trades: false,
-                };
+                self.code_diff = Some(CodeDiff {
+                    frames: self.query.frame != query.frame,
+                    graph: self.query.graph != query.graph,
+                    trades: self.query.trade != query.trade,
+                });
 
-                // Check if frames have changed
-                if self.query.frame != query.frame {
-                    cd.frames = true;
-                }
-
-                // Check if graph has changed
-                if self.query.graph != query.graph {
-                    cd.graph = true;
-                }
-
-                // Check if trades have changed
-                if self.query.trade != query.trade {
-                    cd.trades = true;
-                }
-
-                self.code_diff = Some(cd);
                 self.query = query;
 
                 self.run().await
@@ -124,37 +119,60 @@ impl Engine {
         }
     }
 
+    pub async fn restart(&mut self) -> Result<Output, String> {
+        self.status = EngineStatus::Stopped;
+        self.code_diff = None;
+
+        self.run().await
+    }
+
     pub async fn run(&mut self) -> Result<Output, String> {
         // first iter through models in frame and pull data,
         // this will also handle actions on models
 
         self.status = EngineStatus::Running;
 
-        let cd = match &self.code_diff {
-            Some(cd) => cd.clone(),
-            None => CodeDiff {
-                frames: false,
-                graph: false,
-                trades: false,
-            },
+        if let Err(e) = self.analyze() {
+            self.status = EngineStatus::Error(e.clone());
+            return Err(e);
+        }
+
+        let cd = self.code_diff.clone().unwrap_or(CodeDiff::new());
+
+        log::info!("Running engine for file: {}", self.file_path);
+        log::info!("Code diff: {:?}", cd);
+
+        let mut result_df = |name: String, r: Result<DataFrame, String>| match r {
+            Ok(df) => {
+                self.frames.insert(name.clone(), df);
+                self.status = EngineStatus::Stopped;
+                // Ok(())
+            }
+            Err(e) => {
+                self.status = EngineStatus::Error(e.clone());
+                log::error!("Failed to execute model: {}", e);
+                // return Err(format!("Failed to execute model: {}", e));
+            }
         };
+
+        let mut model_gate =
+            async |name: String, frame: &Frame, model_type: ModelType| match model_type {
+                ModelType::Live => {
+                    log::info!("Live model type is not supported yet");
+                }
+                ModelType::Historical => {
+                    let controller = HistoricalController::new(frame, None);
+                    let df = controller.execute().await;
+                    result_df(name.clone(), df);
+                }
+                ModelType::Fundamental => {
+                    log::info!("Fundamental model type is not supported yet");
+                }
+            };
 
         if !cd.frames {
             for (name, frame) in self.query.frame.iter() {
-                match frame.model.model_type {
-                    ModelType::Live => {
-                        return Err("Live model type is not supported yet".to_string());
-                    }
-                    ModelType::Historical => {
-                        let controller = HistoricalController::new(frame, None);
-                        let df = controller.execute().await?;
-                        self.frames.insert(name.clone(), df);
-                    }
-
-                    ModelType::Fundamental => {
-                        return Err("Fundamental model type is not supported yet".to_string());
-                    }
-                }
+                model_gate(name.clone(), frame, frame.model.model_type.clone()).await;
             }
         }
 
