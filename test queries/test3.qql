@@ -1,0 +1,38 @@
+FRAME watch
+	HISTORICAL
+    TICKER ^vix
+    FROM 20200101 TO 20250801
+    PULL open, close, low, high
+	CALC 50 CONSTANT CALLED index_level
+
+FRAME action
+	HISTORICAL
+    TICKER spy
+    FROM 20200101 TO 20250801
+    PULL open, close, low, high
+	CALC open VOLATILITY CALLED open_vol
+	CALC open DOUBLE_VOLATILITY CALLED open_double_vol
+	CALC open_vol_pos LINEAR_REGRESSION CALLED lr_open_vol_pos
+	CALC open_vol_neg LINEAR_REGRESSION CALLED lr_open_vol_neg
+	CALC open_double_vol_neg LINEAR_REGRESSION CALLED lr_open_double_vol_neg
+
+
+GRAPH
+	XAXIS watch
+
+--	CANDLE open, high, low, close FOR watch
+	LINE high FOR watch
+	LINE index_level FOR watch
+
+	CANDLE open, high, low, close FOR action
+	LINE lr_open_vol_pos FOR action
+	LINE lr_open_vol_neg FOR action
+	LINE lr_open_double_vol_neg FOR action
+
+TRADE
+	STOCK
+	OVERFRAME action
+	ENTRY watch.index_level, watch.low, 0.1
+	EXIT action.high, action.lr_open_vol_pos, 0.1
+	LIMIT 0.25
+	HOLD 365

@@ -5,6 +5,8 @@ use crate::views::searchbar::SearchMode;
 pub enum UIEventPane {
     GraphView(String),
     TableView(String),
+    TradeView(String),
+    FlowCharView(String),
     Text(String),
 }
 
@@ -23,7 +25,9 @@ impl UIEventPane {
         match self {
             UIEventPane::GraphView(title)
             | UIEventPane::Text(title)
-            | UIEventPane::TableView(title) => title.split('/').last().unwrap_or("Table View"),
+            | UIEventPane::TableView(title)
+            | UIEventPane::FlowCharView(title)
+            | UIEventPane::TradeView(title) => title.split('/').last().unwrap_or("Table View"),
         }
     }
 
@@ -31,7 +35,9 @@ impl UIEventPane {
         match self {
             UIEventPane::GraphView(path)
             | UIEventPane::Text(path)
-            | UIEventPane::TableView(path) => path,
+            | UIEventPane::TableView(path)
+            | UIEventPane::FlowCharView(path)
+            | UIEventPane::TradeView(path) => path,
         }
     }
 }

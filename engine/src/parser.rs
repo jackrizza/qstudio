@@ -29,6 +29,7 @@ use std::iter::Peekable;
 use crate::lexer::Lexer;
 use crate::lexer::{Keyword, Token, TokenKind}; // assuming you expose Lexer in lexer.rs
 use std::collections::HashMap;
+use polars::frame::DataFrame;
 
 /* ------------------------------- AST types ------------------------------- */
 
@@ -185,12 +186,20 @@ pub enum TradeType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TradeSection {
     pub trade_type: TradeType,
+    pub over_frame: String,
     pub entry: Vec<String>,
     pub within_entry: f64,
     pub exit: Vec<String>,
     pub within_exit: f64,
     pub stop_loss: f64,
     pub hold: i32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Trades {
+    pub trades_table: DataFrame,
+    pub trades_graph: Vec<([[f64; 2]; 4], [[f64; 2]; 4])>,
+    pub over_frame: String,
 }
 
 /* ------------------------------- ParseError ------------------------------ */
@@ -250,10 +259,17 @@ impl<'a> Parser<'a> {
     // Entry point
     pub fn parse(&mut self) -> Result<Query, ParseError> {
         let frame = self.parse_frame_section()?;
-        let trade = self.parse_trade_section()?;
+
         let graph = match self.parse_graph_section() {
             Ok(g) => g,
             Err(_e) => None,
+        };
+        let trade = match self.parse_trade_section() {
+            Ok(t) => t,
+            Err(e) => {
+                log::error!("Failed to parse trade section: {}", e.message);
+                None
+            }
         };
         Ok(Query {
             frame,
@@ -498,6 +514,7 @@ impl<'a> Parser<'a> {
                 | Keyword::Sma
                 | Keyword::Volatility
                 | Keyword::DoubleVolatility
+                | Keyword::Constant
                 | Keyword::LinearRegression),
             ) => k,
             _ => {
@@ -599,6 +616,7 @@ impl<'a> Parser<'a> {
             Some(Ok(tok)) if matches!(tok.kind, TokenKind::Keyword(Keyword::Trade)) => {
                 self.next_token()?; // consume TRADE
                 self.consume_newlines()?;
+                log::info!("Parsing trade section");
 
                 // Trade type
                 let trade_type = match self.next_token()? {
@@ -621,6 +639,12 @@ impl<'a> Parser<'a> {
                         ))
                     }
                 };
+                self.consume_newlines()?;
+
+                // OVER FRAME
+                self.expect_keyword(Keyword::OverFrame)?;
+                let over_frame = self.expect_identifier()?;
+
                 self.consume_newlines()?;
 
                 // ENTRY
@@ -711,6 +735,7 @@ impl<'a> Parser<'a> {
 
                 Ok(Some(TradeSection {
                     trade_type,
+                    over_frame,
                     entry,
                     within_entry,
                     exit,

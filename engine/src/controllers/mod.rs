@@ -5,14 +5,14 @@ pub mod fundamentals;
 pub mod historical;
 pub mod live;
 
-use crate::parser::Graph;
+use crate::parser::{Graph, Trades};
 
 #[derive(Debug)]
 pub enum Output {
     Data {
         graph: Option<Graph>,
         tables: HashMap<String, DataFrame>,
-        trades: Option<DataFrame>,
+        trades: Option<Trades>,
     },
     Error(String),
     None,
@@ -23,6 +23,21 @@ impl Output {
         match self {
             Output::Data { graph, .. } => graph.as_ref(),
             _ => None,
+        }
+    }
+
+    pub fn get_trades(&self) -> Option<Trades> {
+        match self {
+            Output::Data { trades, .. } => {
+                if trades.is_none() {
+                    log::warn!("No trades available");
+                }
+                trades.clone()
+            }
+            _ => {
+                log::warn!("No trades available");
+                None
+            }
         }
     }
 

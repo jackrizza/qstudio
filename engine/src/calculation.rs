@@ -11,7 +11,16 @@ impl Calculation {
     pub fn calculate(&self, df: &DataFrame) -> Result<DataFrame, String> {
         let data = match df.columns(&self.0.inputs) {
             Ok(data) => data,
-            Err(e) => return Err(format!("Failed to get columns: {}", e)),
+            Err(e) => {
+                if self.0.operation == Keyword::Constant {
+                    vec![] // Constant does not require input columns
+                } else {
+                    return Err(format!(
+                        "Failed to get input columns {:?}: {}",
+                        self.0.inputs, e
+                    ));
+                }
+            }
         };
 
         let data: Vec<&Series> = data.iter().map(|s| s.as_materialized_series()).collect();
@@ -22,6 +31,21 @@ impl Calculation {
             .collect();
 
         match self.0.operation {
+            Keyword::Constant => {
+                let constant = self
+                    .0
+                    .inputs
+                    .get(0)
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .unwrap_or(0.0);
+
+                let values = vec![constant; df.height()];
+
+                let series = Series::new(self.0.alias.clone().into(), values);
+                DataFrame::new(vec![series.into_column()])
+                    .map_err(|e| format!("Failed to create DataFrame: {}", e))
+            }
+
             Keyword::Difference => {
                 let mut diffs = Vec::new();
                 for row in 0..data[0].len() {

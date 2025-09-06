@@ -1,0 +1,41 @@
+-- This is a test script
+-- Tell engine where to pull data from
+FRAME aapl
+	HISTORICAL
+	TICKER aapl
+	FROM 20200101 TO 20250801
+	PULL open, close, low, high
+	CALC open, close DIFFERENCE CALLED oc_diff
+	CALC high, low DIFFERENCE CALLED hl_diff
+	CALC high SMA CALLED h_sma
+	CALC low SMA CALLED l_sma
+
+FRAME nvda
+	HISTORICAL
+	TICKER nvda
+	FROM 20200101 TO 20250801
+	PULL open, close, low, high
+	CALC open, close DIFFERENCE CALLED oc_diff
+	CALC high, low DIFFERENCE CALLED hl_diff
+	CALC high SMA CALLED h_sma
+	CALC low SMA CALLED l_sma
+
+GRAPH
+	XAXIS aapl
+
+	CANDLE open, high, low, close FOR aapl
+	CANDLE open, high, low, close FOR nvda
+	
+	LINE oc_diff FOR nvda
+	LINE oc_diff FOR aapl
+
+
+
+TRADE
+	STOCK
+	OVERFRAME aapl
+	ENTRY aapl.low, aapl.l_sma, 0.05 
+	EXIT aapl.high, aapl.h_sma, 0.05
+	LIMIT 0.1
+	HOLD 20
+

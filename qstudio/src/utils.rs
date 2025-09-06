@@ -5,6 +5,13 @@ pub fn match_file_extension_for_pane_type(
     _file_name: &str,
 ) -> PaneType {
     match pane_type {
+        crate::models::ui::UIEventPane::TradeView(file_name) => {
+            PaneType::TradeView(file_name.into())
+        }
+
+        crate::models::ui::UIEventPane::FlowCharView(file_name) => {
+            PaneType::FlowCharView(file_name.into())
+        }
 
         crate::models::ui::UIEventPane::TableView(file_name) => {
             PaneType::TableView(file_name.into())

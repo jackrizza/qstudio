@@ -147,6 +147,31 @@ pub fn active_engines_ui(
                                     // Handle delete button click
                                 }
 
+                                 if ui
+                                    .add(
+                                        egui::Button::new(
+                                            RichText::new(
+                                                egui_material_icons::icons::ICON_WORKFLOW,
+                                            )
+                                            .size(16.0),
+                                        )
+                                        .fill(egui::Color32::TRANSPARENT),
+                                    )
+                                    .on_hover_text("Code Flow Chart")
+                                    .clicked()
+                                {
+                                    // Handle view button click
+                                    channels
+                                        .senders()
+                                        .ui_tx
+                                        .lock()
+                                        .unwrap()
+                                        .send(UIEvent::AddPane(UIEventPane::FlowCharView(
+                                            file_path.clone(),
+                                        )))
+                                        .unwrap();
+                                }
+
                                 if ui
                                     .add(
                                         egui::Button::new(
@@ -191,6 +216,30 @@ pub fn active_engines_ui(
                                         .lock()
                                         .unwrap()
                                         .send(UIEvent::AddPane(UIEventPane::TableView(
+                                            file_path.clone(),
+                                        )))
+                                        .unwrap();
+                                }
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            RichText::new(
+                                                egui_material_icons::icons::ICON_CURRENCY_EXCHANGE,
+                                            )
+                                            .size(16.0),
+                                        )
+                                        .fill(egui::Color32::TRANSPARENT),
+                                    )
+                                    .on_hover_text("View engine data")
+                                    .clicked()
+                                {
+                                    // Handle view button click
+                                    channels
+                                        .senders()
+                                        .ui_tx
+                                        .lock()
+                                        .unwrap()
+                                        .send(UIEvent::AddPane(UIEventPane::TradeView(
                                             file_path.clone(),
                                         )))
                                         .unwrap();

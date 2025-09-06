@@ -1,24 +1,30 @@
 use egui::{Color32, Stroke, TextStyle};
-use egui_plot::{Bar, BarChart, BoxElem, BoxPlot, Corner, Legend, Line, Plot, PlotPoints, Polygon};
-use engine::parser::{DrawType, Graph};
+use egui_plot::{
+    Bar, BarChart, BoxElem, BoxPlot, Corner, Legend, Line, Plot, PlotPoints, PlotUi, Polygon,
+};
+use engine::parser::{DrawType, Graph, Trades};
+use polars::frame::DataFrame;
 
-pub struct DrawGraph(pub Graph);
+pub struct DrawGraph {
+    pub graph: Graph,
+    pub trades: Option<Trades>,
+}
 
 impl DrawGraph {
-    pub fn new(graph: Graph) -> Self {
-        DrawGraph(graph)
+    pub fn new(graph: Graph, trades: Option<Trades>) -> Self {
+        DrawGraph { graph, trades }
     }
 
     pub fn draw(&self, ui: &mut egui::Ui) {
-        let n = self.0.axis_labels.len().max(1) as f64;
+        let n = self.graph.axis_labels.len().max(1) as f64;
         let step_size = (self
-            .0
+            .graph
             .axis_labels
             .last()
             .and_then(|label| label.parse::<f64>().ok())
             .unwrap_or(n)
             - self
-                .0
+                .graph
                 .axis_labels
                 .first()
                 .and_then(|label| label.parse::<f64>().ok())
@@ -29,12 +35,12 @@ impl DrawGraph {
             [step_size.max(1.0), step_size.max(1.0), step_size.max(1.0)]
         };
 
-        Plot::new(&self.0.title)
+        Plot::new(&self.graph.title)
             .show_grid([false, false])
             .allow_double_click_reset(true)
             .x_axis_label("Time")
             .y_axis_label("Price")
-            .default_y_bounds(self.0.min() - 25.0, self.0.max() + 25.0)
+            .default_y_bounds(self.graph.min() - 25.0, self.graph.max() + 25.0)
             .show_axes([true, true]) // Show/hide axis lines and labels
             .legend(
                 Legend::default()
@@ -44,11 +50,11 @@ impl DrawGraph {
                     .follow_insertion_order(true),
             )
             .show(ui, |plot_ui| {
-                for draw_type in &self.0.data {
+                for draw_type in &self.graph.data {
                     match draw_type {
                         DrawType::Line(name, values) => {
                             let plot_points: PlotPoints = self
-                                .0
+                                .graph
                                 .axis_labels
                                 .iter()
                                 .zip(values)
@@ -66,7 +72,7 @@ impl DrawGraph {
                             let mut bars = Vec::new();
                             for (i, y) in ys.iter().enumerate() {
                                 let arg = self
-                                    .0
+                                    .graph
                                     .axis_labels
                                     .get(i)
                                     .and_then(|s| s.parse::<f64>().ok())
@@ -90,7 +96,7 @@ impl DrawGraph {
                                 .iter()
                                 .enumerate()
                                 .filter_map(|(i, &(open, high, low, close))| {
-                                    let label = self.0.axis_labels.get(i)?;
+                                    let label = self.graph.axis_labels.get(i)?;
                                     let x = label.parse::<f64>().ok()?;
 
                                     let color = if close >= open {
@@ -158,6 +164,41 @@ impl DrawGraph {
                         }
                     }
                 }
+                if let Some(trades) = &self.trades {
+                    self.draw_in_trades(plot_ui, trades);
+                }
             });
+    }
+
+    fn draw_in_trades(&self, plot_ui: &mut PlotUi, trades: &Trades) {
+        // do later
+        for (buy, limit) in &trades.trades_graph {
+            plot_ui.polygon(
+                Polygon::new("buy_trade", buy.to_vec())
+                    .fill_color(egui::Color32::from_rgba_unmultiplied(
+                        0,
+                        200,
+                        0,
+                        (0.10 * 255.0) as u8, // transparent green fill
+                    ))
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        egui::Color32::from_rgba_unmultiplied(0, 200, 0, (0.8 * 255.0) as u8), // more visible green stroke
+                    )),
+            );
+            plot_ui.polygon(
+                Polygon::new("limit_trade", limit.to_vec())
+                    .fill_color(egui::Color32::from_rgba_unmultiplied(
+                        200,
+                        0,
+                        0,
+                        (0.10 * 255.0) as u8, // transparent red fill
+                    ))
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        egui::Color32::from_rgba_unmultiplied(200, 0, 0, (0.8 * 255.0) as u8), // more visible red stroke
+                    )),
+            );
+        }
     }
 }

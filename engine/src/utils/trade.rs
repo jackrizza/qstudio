@@ -1,4 +1,4 @@
-use crate::parser::{TradeSection, TradeType};
+use crate::parser::TradeSection;
 use polars::prelude::*;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -194,9 +194,6 @@ pub fn trades_over_data(
     let mut entry: Vec<Vec<Option<f64>>> = Vec::new();
     let mut exit: Vec<Vec<Option<f64>>> = Vec::new();
 
-    // for debug
-    println!("Available frames: {:?}", frames.keys().collect::<Vec<_>>());
-
     // second we will populate entry
     let entry_keys: Vec<(String, String)> = trade_section
         .entry
@@ -250,15 +247,59 @@ pub fn trades_over_data(
         .calculate(entry_threshold, exit_threshold, limit, hold)
         .map_err(|e| format!("Trade calculation failed: {}", e))?;
 
-    match df!(
+    let df = match df!(
         "timestamp" => timestamps,
         "entry" => trade.entry_output,
         "exit" => trade.exit_output,
         "limit" => trade.limit_output,
     ) {
-        Ok(df) => Ok(df),
-        Err(e) => Err(format!("Failed to create DataFrame: {}", e)),
-    }
+        Ok(df) => df,
+        Err(e) => return Err(format!("Failed to create DataFrame: {}", e)),
+    };
+
+    let df = df
+        .clone()
+        .lazy()
+        .filter(
+            col("entry")
+                .is_not_null()
+                .or(col("exit").is_not_null())
+                .or(col("limit").is_not_null()),
+        )
+        .collect()
+        .unwrap_or(df.clone());
+
+    // base lazy view from the filtered df you already built
+    let base = df.clone().lazy();
+
+    // 1) rows where entry fired -> (id, Entry)
+    let entries = base
+        .clone()
+        .filter(col("entry").is_not_null())
+        .select([col("entry").alias("id"), col("timestamp").alias("Entry")]);
+
+    // 2) rows where exit fired -> (id, Exit)
+    let exits = base
+        .clone()
+        .filter(col("exit").is_not_null())
+        .select([col("exit").alias("id"), col("timestamp").alias("Exit")]);
+
+    // 3) rows where stop/limit fired -> (id, Limit)
+    let limits = base
+        .filter(col("limit").is_not_null())
+        .select([col("limit").alias("id"), col("timestamp").alias("Limit")]);
+
+    // 4) left-join everything on id so Entry is required and Exit/Limit are optional
+    let out = entries
+        .left_join(exits, col("id"), col("id")) // <- no brackets
+        .left_join(limits, col("id"), col("id")) // <- no brackets
+        .filter(col("Exit").is_not_null().or(col("Limit").is_not_null()))
+        .collect()
+        .map_err(|e| format!("Failed to build trade summary: {}", e))?;
+
+    // final shape:
+    // | id   | Entry (i64 ts) | Exit (i64 ts, opt) | Limit (i64 ts, opt) |
+    Ok(out)
 }
 
 // getter.0 is the the key of the frame in the hashmap
@@ -297,16 +338,96 @@ fn populate(
     Ok(data)
 }
 
-pub fn trade_dataframe_to_table(
+pub fn trade_graphing_util(
+    context: TradeSection,
     trades: &DataFrame,
-    dataset: &DataFrame,
-) -> Result<DataFrame, String> {
-    // trades is going to have uids assigned to trades
-    // we will use these uids to join with the dataset
-    // dataset is the original data that was used to generate the trades
-    // then the function will return a DataFrame with columns :
-    // uid entry_price, entry_timestamp, exit_price, exit_timestamp, limit_price, limit_timestamp
-    // these can have None values, the datum is the entry every trade starts with an entry
-    // and then it can have an exit or a limit
-    Err("Not implemented".to_string())
+    frame: &DataFrame,
+) -> Vec<([[f64; 2]; 4], [[f64; 2]; 4])> {
+    // objectively this will take the trades from from trades dataframe
+    // then will map it over the frame dataframe
+    // the output will be a vector of rectangles
+    // the rectangles will be tuples of (x1, y1), (x2, y2), (x3, y3), (x4, y4)
+    // the first rectangle in the tuple will be the buy and the second
+    // rectangle will be the limit
+
+    let mut rects: Vec<([[f64; 2]; 4], [[f64; 2]; 4])> = Vec::new();
+
+    // Example: iterate over rows by index
+    for idx in 0..trades.height() {
+        // Access values by column and index, e.g.:
+        // let entry = trades.column("Entry").unwrap().i64().unwrap().get(idx);
+        // let exit = trades.column("Exit").unwrap().i64().unwrap().get(idx);
+        // ... build your rectangle here ...
+
+        let left_x = trades
+            .column("Entry")
+            .unwrap()
+            .i64()
+            .unwrap()
+            .get(idx)
+            .unwrap_or(0) as f64;
+
+        // Use Exit if present, otherwise use Limit
+        let right_x = trades
+            .column("Exit")
+            .unwrap()
+            .i64()
+            .unwrap()
+            .get(idx)
+            .or_else(|| trades.column("Limit").unwrap().i64().unwrap().get(idx))
+            .unwrap_or(left_x as i64 + 1) as f64;
+
+        let limit_buy_intercept = frame
+            .clone()
+            .lazy()
+            .filter(col("timestamp").eq(lit(left_x as i64)))
+            .select([col("open")])
+            .collect()
+            .ok()
+            .and_then(|df| {
+                if df.height() > 0 {
+                    df.column("open").ok()?.f64().ok()?.get(0)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0.0);
+
+        let limit_down = limit_buy_intercept * (1.0 - context.stop_loss);
+
+        let buy_up = frame
+            .clone()
+            .lazy()
+            .filter(col("timestamp").eq(lit(right_x as i64)))
+            .select([col("open")])
+            .collect()
+            .ok()
+            .and_then(|df| {
+                if df.height() > 0 {
+                    df.column("open").ok()?.f64().ok()?.get(0)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0.0);
+
+        let buy_rect = [
+            [left_x, buy_up],
+            [right_x, buy_up],
+            [right_x, limit_buy_intercept],
+            [left_x, limit_buy_intercept],
+        ];
+
+        let limit_rect = [
+            [left_x, limit_buy_intercept],
+            [right_x, limit_buy_intercept],
+
+            [right_x, limit_down],
+            [left_x, limit_down],
+        ];
+
+        rects.push((buy_rect, limit_rect));
+    }
+
+    rects
 }

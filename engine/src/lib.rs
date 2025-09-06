@@ -16,7 +16,7 @@ use std::fs;
 // use crate::controllers::fundamentals::FundamentalsController;
 use crate::controllers::historical::HistoricalController;
 // use crate::controllers::live::LiveController;
-use crate::parser::ModelType;
+use crate::parser::{ModelType, Trades};
 
 use crate::controllers::Output;
 
@@ -183,26 +183,64 @@ impl Engine {
         if let Some(g) = &self.query.graph {
             graph = match utils::graph::graph_over_data(g, &self.frames) {
                 Ok(g) => Some(g),
-                Err(e) => return Err(format!("Failed to build graph: {}", e)),
+                Err(e) => {
+                    log::error!("Failed to build graph: {}", e);
+                    return Err(format!("Failed to build graph: {}", e));
+                }
             };
         }
 
         if let Some(trade_section) = &self.query.trade {
+            log::info!("Building trades over data");
             trades = match utils::trade::trades_over_data(trade_section, &self.frames) {
                 Ok(df) => Some(df),
                 Err(e) => {
+                    log::error!("Failed to build trades: {}", e);
                     return Err(format!("Failed to build trades: {}", e));
                 }
             };
+        } else {
+            log::info!("No trade section found in query");
         }
 
         self.status = EngineStatus::Stopped;
         self.code_diff = None;
 
+        log::info!("Engine run completed for file: {}", self.file_path);
+        if let Some(_) = &graph {
+            log::info!("Graph Generated");
+        } else {
+            log::info!("No graph generated");
+        }
+        log::info!("Generated {} Tables", self.frames.len());
+        if let Some(trades) = &trades {
+            log::info!("Trades: {} rows", trades.height());
+        } else {
+            log::info!("No trades generated");
+        }
+
+        let mut t: Option<Trades> = None;
+        if let Some(trades_df) = trades {
+            let over_frame = self.query.trade.as_ref().unwrap().over_frame.clone();
+            let over_frame_df = self
+                .frames
+                .get(&over_frame)
+                .ok_or_else(|| format!("Frame '{}' not found for trades", over_frame))?;
+            t = Some(Trades {
+                trades_table: trades_df.clone(),
+                trades_graph: utils::trade::trade_graphing_util(
+                    self.query.trade.clone().unwrap(),
+                    &trades_df,
+                    &over_frame_df,
+                ),
+                over_frame,
+            });
+        }
+
         Ok(Output::Data {
             graph,
             tables: self.frames.clone(),
-            trades,
+            trades: t,
         })
     }
 }

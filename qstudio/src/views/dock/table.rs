@@ -1,3 +1,5 @@
+use engine::parser::Trades;
+use polars::lazy::dsl::col;
 use polars::prelude::*;
 
 pub struct DataFrameTable {
@@ -45,6 +47,21 @@ impl egui_table::TableDelegate for DataFrameTable {
 }
 
 pub fn show_dataframe_table(ui: &mut egui::Ui, df: &DataFrame) {
+    let ncols = df.get_columns().len();
+    let nrows = df.height() as u64;
+
+    let mut table = egui_table::Table::new()
+        .num_rows(nrows)
+        .columns(vec![egui_table::Column::new(100.0).resizable(true); ncols])
+        .headers([egui_table::HeaderRow::new(24.0)])
+        .auto_size_mode(egui_table::AutoSizeMode::default());
+
+    let mut delegate = DataFrameTable::new(df.clone());
+    table.show(ui, &mut delegate);
+}
+
+pub fn show_trades_table(ui: &mut egui::Ui, trades: &Trades) {
+    let df = &trades.trades_table;
     let ncols = df.get_columns().len();
     let nrows = df.height() as u64;
 

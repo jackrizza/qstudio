@@ -1,7 +1,7 @@
 use crate::models::engine::EngineEvent;
 use crate::models::ui::UIEvent;
 use crate::Channels;
-use egui::Ui;
+use egui::{CollapsingHeader, Ui};
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_dock::{DockArea, DockState, NodeIndex, SurfaceIndex, TabIndex, TabViewer};
 use engine::controllers::Output;
@@ -29,6 +29,8 @@ pub enum PaneType {
     CodeEditor(String),
     GraphView(String),
     TableView(String),
+    TradeView(String),
+    FlowCharView(String),
 }
 
 impl PaneType {
@@ -39,6 +41,8 @@ impl PaneType {
             PaneType::CodeEditor(title) => title.clone(),
             PaneType::GraphView(title) => format!("Graph -  {}", title.clone()),
             PaneType::TableView(title) => format!("Table -  {}", title.clone()),
+            PaneType::TradeView(title) => format!("Trade -  {}", title.clone()),
+            PaneType::FlowCharView(title) => format!("Flow Chart -  {}", title.clone()),
         }
     }
 }
@@ -141,6 +145,59 @@ impl TabViewer for MyTabViewer {
             PaneType::Blank => {
                 ui.label("This is a blank pane.");
             }
+
+            PaneType::FlowCharView(file_name) => {
+                let code = fs::read_to_string(file_name).unwrap_or_else(|_| "".to_string());
+                if code.is_empty() {
+                    ui.label("No flow chart data available.");
+                } else {
+                    match engine::parser::parse(&code) {
+                        Ok(flowchart) => {
+                            CollapsingHeader::new("Flow Chart")
+                                .default_open(true)
+                                .show(ui, |ui| {
+                                    CollapsingHeader::new("Frame").default_open(true).show(
+                                        ui,
+                                        |ui| {
+                                            for (name, frame) in &flowchart.frame {
+                                                CollapsingHeader::new(name).show(ui, |ui| {
+                                                    ui.label(format!("{:#?}", frame));
+                                                });
+                                            }
+                                        },
+                                    );
+
+                                    CollapsingHeader::new("Graph").default_open(true).show(
+                                        ui,
+                                        |ui| {
+                                            if let Some(graph) = &flowchart.graph {
+                                                ui.label(format!("{:#?}", graph));
+                                            } else {
+                                                ui.label("No graph defined.");
+                                            }
+                                        },
+                                    );
+
+                                    CollapsingHeader::new("Trade").default_open(true).show(
+                                        ui,
+                                        |ui| {
+                                            if let Some(trade) = &flowchart.trade {
+                                                ui.label(format!("{:#?}", trade));
+                                            } else {
+                                                ui.label("No trade defined.");
+                                            }
+                                        },
+                                    );
+                                });
+                        }
+                        Err(e) => {
+                            ui.label(format!("Failed to parse flow chart: {}", e.message));
+                            ui.label(format!("line : {}, column : {}", e.line, e.column));
+                        }
+                    }
+                }
+            }
+
             PaneType::CodeEditor(file_name) => {
                 let channels = Arc::clone(&self.channels);
                 editor::code_editor(
@@ -168,9 +225,20 @@ impl TabViewer for MyTabViewer {
                 let dataframes = Arc::clone(&self.dataframes);
                 if let Some(out) = dataframes.lock().unwrap().get(file_name) {
                     if let Some(graph) = out.get_graph() {
-                        graph::DrawGraph::new(graph.clone()).draw(ui);
+                        graph::DrawGraph::new(graph.clone(), out.get_trades()).draw(ui);
                     } else {
                         ui.label("No graph data available.");
+                    }
+                };
+            }
+
+            PaneType::TradeView(file_name) => {
+                let dataframes = Arc::clone(&self.dataframes);
+                if let Some(out) = dataframes.lock().unwrap().get(file_name) {
+                    if let Some(trades) = out.get_trades() {
+                        table::show_trades_table(ui, &trades);
+                    } else {
+                        ui.label("No trade data available.");
                     }
                 };
             }

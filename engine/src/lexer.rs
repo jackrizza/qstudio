@@ -39,6 +39,8 @@ pub enum Keyword {
     Hold,
     Xaxis,
     LinearRegression,
+    Constant,
+    OverFrame,
 }
 
 impl Keyword {
@@ -79,6 +81,8 @@ impl Keyword {
             "XAXIS" => Some(Xaxis),
             "LINEAR_REGRESSION" => Some(LinearRegression),
             "DOUBLE_VOLATILITY" => Some(DoubleVolatility),
+            "CONSTANT" => Some(Constant),
+            "OVERFRAME" => Some(OverFrame),
             _ => None,
         }
     }
@@ -147,7 +151,7 @@ impl<'a> Lexer<'a> {
         let mut buf = String::new();
         buf.push(first);
         while let Some(&c) = self.input.peek() {
-            if c.is_ascii_alphanumeric() || c == '.' || c == '_' {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '^' {
                 buf.push(c);
                 self.advance();
             } else {
@@ -230,7 +234,7 @@ impl<'a> Lexer<'a> {
                     line,
                     column,
                 }),
-                c if c.is_ascii_alphanumeric() => {
+                c if c.is_ascii_alphanumeric() || c == '^' => {
                     let kind = self.lex_word_like(c);
                     Ok(Token { kind, line, column })
                 }
