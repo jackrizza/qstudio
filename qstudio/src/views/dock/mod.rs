@@ -1,5 +1,6 @@
 use crate::models::engine::EngineEvent;
 use crate::models::ui::UIEvent;
+use crate::views::dock::trade::trade_summary_ui;
 use crate::Channels;
 use egui::{CollapsingHeader, Ui};
 use egui_dock::tab_viewer::OnCloseResponse;
@@ -18,6 +19,10 @@ mod editor;
 mod graph;
 mod markdown;
 mod table;
+mod trade;
+
+// Import TradeSummary type
+use engine::utils::trade::TradeSummary;
 
 use table::show_dataframe_table;
 
@@ -236,9 +241,12 @@ impl TabViewer for MyTabViewer {
                 let dataframes = Arc::clone(&self.dataframes);
                 if let Some(out) = dataframes.lock().unwrap().get(file_name) {
                     if let Some(trades) = out.get_trades() {
-                        table::show_trades_table(ui, &trades);
-                    } else {
-                        ui.label("No trade data available.");
+                        let summary = match out.get_trades() {
+                            Some(trades) => trades.trade_summary.clone(),
+                            None => TradeSummary::default(),
+                        };
+
+                        trade_summary_ui(ui, summary, trades);
                     }
                 };
             }

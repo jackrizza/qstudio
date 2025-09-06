@@ -1,4 +1,4 @@
-use crate::parser::TradeSection;
+use crate::{parser::TradeSection, utils::trade};
 use polars::prelude::*;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -28,6 +28,15 @@ use uuid::Uuid;
 /// This function will process the trade_section and the frames to
 
 /// Processes the `TradeSection` and the associated frames to generate a trade DataFrame
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TradeSummary {
+    pub bar_chart_data: Vec<f64>,
+    pub total_trades: usize,
+    pub win_rate: f64,
+    pub avg_win_per_1000: f64,
+    pub avg_loss_per_1000: f64,
+}
 
 struct Trade {
     pub uid: String,
@@ -421,7 +430,6 @@ pub fn trade_graphing_util(
         let limit_rect = [
             [left_x, limit_buy_intercept],
             [right_x, limit_buy_intercept],
-
             [right_x, limit_down],
             [left_x, limit_down],
         ];
@@ -430,4 +438,130 @@ pub fn trade_graphing_util(
     }
 
     rects
+}
+
+pub fn trade_summary_util(
+    context: TradeSection,
+    trades: &DataFrame,
+    frame: &DataFrame,
+) -> TradeSummary {
+    let mut trade_summary = TradeSummary::default();
+
+    for idx in 0..trades.height() {
+        let left_x = trades
+            .column("Entry")
+            .unwrap()
+            .i64()
+            .unwrap()
+            .get(idx)
+            .unwrap_or(0) as f64;
+
+        // Use Exit if present, otherwise use Limit
+        let limit: Option<f64> = trades
+            .column("Limit")
+            .unwrap()
+            .i64()
+            .unwrap()
+            .get(idx)
+            .and_then(|exit_ts| {
+                frame
+                    .clone()
+                    .lazy()
+                    .filter(col("timestamp").eq(lit(exit_ts)))
+                    .select([col("open")])
+                    .collect()
+                    .ok()
+                    .and_then(|df| {
+                        if df.height() > 0 {
+                            df.column("open").ok()?.f64().ok()?.get(0)
+                        } else {
+                            None
+                        }
+                    })
+            });
+
+        let profit: Option<f64> = trades
+            .column("Exit")
+            .unwrap()
+            .i64()
+            .unwrap()
+            .get(idx)
+            .and_then(|exit_ts| {
+                frame
+                    .clone()
+                    .lazy()
+                    .filter(col("timestamp").eq(lit(exit_ts)))
+                    .select([col("open")])
+                    .collect()
+                    .ok()
+                    .and_then(|df| {
+                        if df.height() > 0 {
+                            df.column("open").ok()?.f64().ok()?.get(0)
+                        } else {
+                            None
+                        }
+                    })
+            });
+
+        let limit_buy_intercept = frame
+            .clone()
+            .lazy()
+            .filter(col("timestamp").eq(lit(left_x as i64)))
+            .select([col("open")])
+            .collect()
+            .ok()
+            .and_then(|df| {
+                if df.height() > 0 {
+                    df.column("open").ok()?.f64().ok()?.get(0)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0.0);
+
+        let limit_down: Option<f64> = match limit {
+            Some(_) => Some(limit_buy_intercept * (1.0 - context.stop_loss)),
+            None => None,
+        };
+
+        if let Some(limit) = limit {
+            trade_summary
+                .bar_chart_data
+                .push(limit - limit_buy_intercept);
+
+            trade_summary.avg_loss_per_1000 +=
+                ((limit - limit_buy_intercept) / limit_buy_intercept) * 1000.0;
+        }
+
+        if let Some(profit) = profit {
+            trade_summary
+                .bar_chart_data
+                .push(profit - limit_buy_intercept);
+
+            trade_summary.avg_win_per_1000 +=
+                ((profit - limit_buy_intercept) / limit_buy_intercept) * 1000.0;
+        }
+        log::info!("bar chart data: {:?}", trade_summary.bar_chart_data);
+    }
+
+    trade_summary.total_trades = trade_summary.bar_chart_data.len();
+    // Win rate is the ratio of positive trades to negative trades (ignoring zeros)
+    let positives = trade_summary
+        .bar_chart_data
+        .iter()
+        .filter(|&&x| x > 0.0)
+        .count();
+    let negatives = trade_summary
+        .bar_chart_data
+        .iter()
+        .filter(|&&x| x < 0.0)
+        .count();
+    let denom = positives + negatives;
+    trade_summary.win_rate = if denom > 0 {
+        (positives as f64 / denom as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    trade_summary
 }

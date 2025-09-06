@@ -2,7 +2,7 @@ mod calculation;
 pub mod controllers;
 mod lexer;
 pub mod parser;
-mod utils;
+pub mod utils;
 
 // Import Graph type
 use parser::Graph;
@@ -226,9 +226,15 @@ impl Engine {
                 .frames
                 .get(&over_frame)
                 .ok_or_else(|| format!("Frame '{}' not found for trades", over_frame))?;
+            log::info!("Trades: {:?}", trades_df);
             t = Some(Trades {
                 trades_table: trades_df.clone(),
                 trades_graph: utils::trade::trade_graphing_util(
+                    self.query.trade.clone().unwrap(),
+                    &trades_df,
+                    &over_frame_df,
+                ),
+                trade_summary: utils::trade::trade_summary_util(
                     self.query.trade.clone().unwrap(),
                     &trades_df,
                     &over_frame_df,

@@ -28,8 +28,8 @@ use std::iter::Peekable;
 
 use crate::lexer::Lexer;
 use crate::lexer::{Keyword, Token, TokenKind}; // assuming you expose Lexer in lexer.rs
-use std::collections::HashMap;
 use polars::frame::DataFrame;
+use std::collections::HashMap;
 
 /* ------------------------------- AST types ------------------------------- */
 
@@ -199,6 +199,7 @@ pub struct TradeSection {
 pub struct Trades {
     pub trades_table: DataFrame,
     pub trades_graph: Vec<([[f64; 2]; 4], [[f64; 2]; 4])>,
+    pub trade_summary: crate::utils::trade::TradeSummary,
     pub over_frame: String,
 }
 
@@ -616,7 +617,6 @@ impl<'a> Parser<'a> {
             Some(Ok(tok)) if matches!(tok.kind, TokenKind::Keyword(Keyword::Trade)) => {
                 self.next_token()?; // consume TRADE
                 self.consume_newlines()?;
-                log::info!("Parsing trade section");
 
                 // Trade type
                 let trade_type = match self.next_token()? {
