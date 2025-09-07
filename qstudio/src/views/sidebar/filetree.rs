@@ -682,8 +682,8 @@ impl FolderTree {
             .show(ui, |ui| {
                 ui.set_min_height(ui.available_height());
                 ui.set_max_width(256.0);
-                ui.add_space(8.0);
                 ui.vertical(|ui| {
+                    ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         ui.heading("File Tree");
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -696,10 +696,11 @@ impl FolderTree {
 
                     ui.add_space(6.0);
 
-                    
                     ScrollArea::horizontal()
                         .id_source("filetree-toolbar-scroll")
                         .max_width(256.0)
+                        .max_height(48.0)
+                        
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ComboBox::from_label("Sort")
@@ -759,9 +760,11 @@ impl FolderTree {
                                 ui.separator();
 
                                 let has_selection = !self.selection.is_empty();
-                                let del_btn = ui.add_enabled(has_selection, Button::new("Delete Selected"));
+                                let del_btn =
+                                    ui.add_enabled(has_selection, Button::new("Delete Selected"));
                                 if del_btn.clicked() {
-                                    self.confirm_delete = Some(self.selection.iter().cloned().collect());
+                                    self.confirm_delete =
+                                        Some(self.selection.iter().cloned().collect());
                                 }
 
                                 if ui.button("Select All (filtered)").clicked() {

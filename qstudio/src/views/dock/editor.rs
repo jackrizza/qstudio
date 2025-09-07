@@ -10,7 +10,7 @@ pub fn code_editor(
     buffer: &mut String,
     channels: Arc<Channels>,
 ) {
-    let rows = (ui.available_height() / 18.0).floor() as usize;
+    let rows = (ui.available_height() / 14.0).floor() as usize;
 
     let ctx = ui.ctx();
     if ctx.input(|i| i.key_pressed(egui::Key::S) && i.modifiers.command) {

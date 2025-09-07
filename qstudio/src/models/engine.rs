@@ -3,6 +3,7 @@ use crate::Senders;
 use engine::controllers::Output;
 use engine::Engine;
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
@@ -16,15 +17,16 @@ pub enum EngineEvent {
 }
 
 impl EngineEvent {
-    pub async fn gate(
+    pub fn gate(
         self,
-        engine: Arc<Mutex<HashMap<String, Arc<Mutex<Engine>>>>>,
+        // engine: Arc<Mutex<HashMap<String, Arc<Mutex<Engine>>>>>,
+        engine: &mut HashMap<String, Arc<Mutex<Engine>>>,
         dataframes: Arc<Mutex<HashMap<String, Arc<Output>>>>,
         channels: Arc<Senders>,
     ) {
         match self {
             EngineEvent::Delete(file_path) => {
-                if let Some(_) = engine.lock().unwrap().remove(&file_path) {
+                if let Some(_) = engine.remove(&file_path) {
                     dataframes.lock().unwrap().remove(&file_path);
                     channels
                         .notification_tx
@@ -38,10 +40,11 @@ impl EngineEvent {
                 }
             }
             EngineEvent::Start(file_path) => {
-                if let Some(engine) = engine.lock().unwrap().get(&file_path) {
+                if let Some(engine) = engine.get(&file_path) {
                     let mut engine = engine.lock().unwrap();
-
-                    if let Ok(out) = engine.run().await {
+                    let rt: tokio::runtime::Runtime = tokio::runtime::Runtime::new().unwrap();
+                    let output = rt.block_on(engine.run());
+                    if let Ok(out) = output {
                         dataframes
                             .lock()
                             .unwrap()
@@ -70,7 +73,7 @@ impl EngineEvent {
             }
 
             EngineEvent::Stop(file_path) => {
-                if let Some(engine) = engine.lock().unwrap().get(&file_path) {
+                if let Some(engine) = engine.get(&file_path) {
                     let _engine = engine.lock().unwrap();
                     // engine.status() = engine::EngineStatus::Stopped;
                     channels
@@ -96,9 +99,11 @@ impl EngineEvent {
             }
 
             EngineEvent::UpdateSource(file_path) => {
-                if let Some(engine) = engine.lock().unwrap().get(&file_path) {
+                if let Some(engine) = engine.get(&file_path) {
                     let mut engine = engine.lock().unwrap();
-                    if let Ok(out) = engine.update_code().await {
+                    let rt: tokio::runtime::Runtime = tokio::runtime::Runtime::new().unwrap();
+                    let output = rt.block_on(engine.update_code());
+                    if let Ok(out) = output {
                         dataframes
                             .lock()
                             .unwrap()
@@ -128,9 +133,11 @@ impl EngineEvent {
             }
 
             EngineEvent::Restart(file_path) => {
-                if let Some(engine) = engine.lock().unwrap().get(&file_path) {
+                if let Some(engine) = engine.get(&file_path) {
                     let mut engine = engine.lock().unwrap();
-                    if let Ok(out) = engine.restart().await {
+                    let rt: tokio::runtime::Runtime = tokio::runtime::Runtime::new().unwrap();
+                    let output = rt.block_on(engine.restart());
+                    if let Ok(out) = output {
                         channels
                             .notification_tx()
                             .send(Notification::Success(format!(

@@ -21,6 +21,8 @@ use qstudiov3::views::dock::{MyTabViewer, PaneDock};
 use qstudiov3::views::searchbar::{SearchBar, SearchMode};
 use qstudiov3::views::sidebar::SideBar;
 
+use theme::*;
+
 use dotenv::dotenv;
 
 pub struct State {
@@ -98,6 +100,22 @@ impl State {
 
 impl eframe::App for State {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Set the background color of the entire window
+        let visuals = ctx.style().visuals.clone();
+        let is_dark_mode = visuals.dark_mode;
+        let primary_background = if is_dark_mode {
+            theme::GITHUB_DARK.mantle
+        } else {
+            theme::GITHUB_LIGHT.mantle
+        };
+
+        // Apply background color to the whole window
+        ctx.set_visuals({
+            let mut v = visuals.clone();
+            v.window_fill = primary_background;
+            v
+        });
+
         // self.channels.log_channel_events();
 
         if ctx.input(|i| i.key_pressed(egui::Key::I) && i.modifiers.command) {
@@ -143,14 +161,6 @@ impl eframe::App for State {
             }
         }
 
-        let visuals = ctx.style().visuals.clone();
-        let is_dark_mode = visuals.dark_mode;
-        let primary_background = if is_dark_mode {
-            egui::Color32::from_rgb(30, 30, 30)
-        } else {
-            egui::Color32::from_rgb(240, 240, 240)
-        };
-
         if self.sidebar.show_search {
             self.searchbar.ui(ctx);
         } else {
@@ -174,7 +184,12 @@ impl eframe::App for State {
 
         // Main pane tree (code editor, graph, etc.)
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().inner_margin(0.0).outer_margin(0.0))
+            .frame(
+                egui::Frame::new()
+                    .inner_margin(0.0)
+                    .outer_margin(0.0)
+                    .fill(primary_background),
+            )
             .show(ctx, |ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
                 // self.pane_tree.ui(ui);
@@ -182,12 +197,17 @@ impl eframe::App for State {
             });
 
         // Status bar
-        egui::TopBottomPanel::bottom("status_bar")
-            .frame(egui::Frame::new().inner_margin(0.0).outer_margin(0.0))
-            .show(ctx, |ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-                // self.status_bar.ui(ui);
-            });
+        // egui::TopBottomPanel::bottom("status_bar")
+        //     .frame(
+        //         egui::Frame::new()
+        //             .inner_margin(0.0)
+        //             .outer_margin(0.0)
+        //             .fill(primary_background),
+        //     )
+        //     .show(ctx, |ui| {
+        //         ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+        //         // self.status_bar.ui(ui);
+        //     });
 
         self.notification.show(ctx);
     }
@@ -204,8 +224,8 @@ fn main() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 720.0]),
-        hardware_acceleration : eframe::HardwareAcceleration::Required,
-        renderer : eframe::Renderer::Wgpu,
+        hardware_acceleration: eframe::HardwareAcceleration::Required,
+        renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
 
@@ -224,6 +244,13 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(|cc| {
             egui_material_icons::initialize(&cc.egui_ctx);
+
+            if cc.egui_ctx.style().visuals.dark_mode {
+                theme::set_theme(&cc.egui_ctx, theme::GITHUB_DARK);
+            } else {
+                theme::set_theme(&cc.egui_ctx, theme::GITHUB_LIGHT);
+            }
+
             Ok(Box::new(State::new(
                 Arc::new(channels),
                 Arc::clone(&dataframes),

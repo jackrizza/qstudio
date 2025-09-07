@@ -541,7 +541,6 @@ pub fn trade_summary_util(
             trade_summary.avg_win_per_1000 +=
                 ((profit - limit_buy_intercept) / limit_buy_intercept) * 1000.0;
         }
-        log::info!("bar chart data: {:?}", trade_summary.bar_chart_data);
     }
 
     trade_summary.total_trades = trade_summary.bar_chart_data.len();

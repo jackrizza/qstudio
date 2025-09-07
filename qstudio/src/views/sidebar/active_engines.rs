@@ -88,7 +88,7 @@ pub fn active_engines_ui(
                                                     RichText::new(
                                                         egui_material_icons::icons::ICON_START,
                                                     )
-                                                    .color(egui::Color32::GREEN)
+                                                    .color(egui::Color32::from_rgb(76, 175, 80)) // Calmer green (Material Green 500)
                                                     .size(16.0),
                                                 )
                                                 .fill(egui::Color32::TRANSPARENT),
@@ -114,7 +114,7 @@ pub fn active_engines_ui(
                                     .add(
                                         egui::Button::new(
                                             RichText::new(egui_material_icons::icons::ICON_RESTORE)
-                                                .color(egui::Color32::BLUE)
+                                                .color(egui::Color32::from_rgb(100, 149, 237)) // Calmer blue (Cornflower Blue)
                                                 .size(16.0),
                                         )
                                         .fill(egui::Color32::TRANSPARENT),
@@ -182,7 +182,7 @@ pub fn active_engines_ui(
                                         )
                                         .fill(egui::Color32::TRANSPARENT),
                                     )
-                                    .on_hover_text("View engine data")
+                                    .on_hover_text("View stock chart")
                                     .clicked()
                                 {
                                     // Handle view button click
@@ -206,7 +206,7 @@ pub fn active_engines_ui(
                                         )
                                         .fill(egui::Color32::TRANSPARENT),
                                     )
-                                    .on_hover_text("View engine data")
+                                    .on_hover_text("View stock table")
                                     .clicked()
                                 {
                                     // Handle view button click
@@ -230,7 +230,7 @@ pub fn active_engines_ui(
                                         )
                                         .fill(egui::Color32::TRANSPARENT),
                                     )
-                                    .on_hover_text("View engine data")
+                                    .on_hover_text("View trade summary")
                                     .clicked()
                                 {
                                     // Handle view button click

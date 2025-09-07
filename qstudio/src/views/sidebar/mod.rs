@@ -40,7 +40,7 @@ impl SideBar {
 
     pub fn width(&self) -> f32 {
         if self.show_folder_tree || self.show_settings || self.show_active_engines {
-            64.0 + 256.0 // Fixed width for the sidebar
+            64.0 + 270.0 // Fixed width for the sidebar
         } else {
             64.0
         }
@@ -54,9 +54,9 @@ impl SideBar {
 
     pub fn ui(&mut self, ui: &mut egui::Ui, channels: Arc<Channels>) {
         let primary_background = if ui.visuals().dark_mode {
-            egui::Color32::from_rgb(0x2c, 0x2c, 0x2c)
+            theme::GITHUB_DARK.crust
         } else {
-            egui::Color32::LIGHT_GRAY
+            theme::GITHUB_LIGHT.crust
         };
 
         Flex::horizontal()
@@ -82,7 +82,7 @@ impl SideBar {
                                     )
                                     .fill(egui::Color32::TRANSPARENT),
                                 )
-                                .on_hover_text("Add new pane")
+                                .on_hover_text("View active engines")
                                 .clicked()
                             {
                                 // Logic to add a new pane can be implemented here
@@ -119,13 +119,14 @@ impl SideBar {
                                     )
                                     .fill(egui::Color32::TRANSPARENT),
                                 )
-                                .on_hover_text("Open search")
+                                .on_hover_text("Use chat gpt")
                                 .clicked()
                             {
                                 self.show_search = !self.show_search;
                             }
 
-                            ui.add_space(16.0); // Space between buttons
+                            let space_between = ui.available_height() - 72.0; // Remaining space
+                            ui.add_space(space_between); // Space between buttons
 
                             if ui
                                 .add(
@@ -148,20 +149,30 @@ impl SideBar {
                 });
 
                 flex.add_ui(FlexItem::new().grow(1.0), |ui| {
-                    if self.show_folder_tree {
-                        ui.add_space(8.0);
-                        self.file_tree.ui(ui, channels);
-                    } else if self.show_settings {
-                        ui.add_space(8.0);
-                        settings::settings_ui(ui);
-                    } else if self.show_active_engines {
-                        ui.add_space(8.0);
-                        active_engines::active_engines_ui(
-                            ui,
-                            &self.engines.lock().unwrap(),
-                            channels,
-                        );
-                    }
+                    let secondary_background = if ui.visuals().dark_mode {
+                        theme::GITHUB_DARK.mantle
+                    } else {
+                        theme::GITHUB_LIGHT.mantle
+                    };
+
+                    egui::Frame::none()
+                        .fill(secondary_background)
+                        .show(ui, |ui| {
+                            if self.show_folder_tree {
+                                ui.add_space(8.0);
+                                self.file_tree.ui(ui, channels.clone());
+                            } else if self.show_settings {
+                                ui.add_space(8.0);
+                                settings::settings_ui(ui);
+                            } else if self.show_active_engines {
+                                ui.add_space(8.0);
+                                active_engines::active_engines_ui(
+                                    ui,
+                                    &self.engines.lock().unwrap(),
+                                    channels,
+                                );
+                            }
+                        });
                 });
             });
     }

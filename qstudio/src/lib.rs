@@ -1,12 +1,13 @@
+use core_affinity::CoreId;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+pub mod ff;
 pub mod models;
+pub mod tick;
 pub mod utils;
 pub mod views;
-pub mod tick;
-pub mod ff;
 
 use models::engine::EngineEvent;
 use models::notification::Notification;
@@ -14,6 +15,8 @@ use models::ui::UIEvent;
 
 use engine::controllers::Output;
 use engine::Engine;
+
+use crate::ff::AsyncExec;
 
 pub struct Senders {
     pub ui_tx: Arc<Mutex<Sender<UIEvent>>>,
@@ -142,19 +145,23 @@ impl Channels {
     ) {
         let receivers = Arc::clone(&self.receivers);
         let senders = Arc::clone(&self.senders);
+
         thread::spawn(move || {
             log::info!("Waiting for engine events...");
-            loop {
-                while let Ok(event) = receivers.engine_recv_blocking() {
-                    log::info!("Engine event received: {:?}", event);
-                    let engine = Arc::clone(&engine);
-                    let dataframes = Arc::clone(&dataframes);
-                    let senders = Arc::clone(&senders);
-                    // Assuming .gate is synchronous
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    let e = event.lock().unwrap().clone();
-                    rt.block_on(e.gate(engine, dataframes, senders));
-                }
+
+            while let Ok(event) = receivers.engine_recv_blocking() {
+                log::info!("Engine event received: {:?}", event);
+                let engine = Arc::clone(&engine);
+                let dataframes = Arc::clone(&dataframes);
+                let senders = Arc::clone(&senders);
+
+                let e = event.lock().unwrap().clone();
+                let mut engine = engine.lock().unwrap();
+                // let mut engine = engine.get_mut(e.file_path()).unwrap().lock().unwrap();
+                // the reason why this is blocking is later gate calls .run on engine
+                // which is an async function
+                // possible fix is to move the engine lock to here
+                e.gate(&mut engine, dataframes, senders);
             }
         });
     }

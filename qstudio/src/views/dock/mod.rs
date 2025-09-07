@@ -2,9 +2,12 @@ use crate::models::engine::EngineEvent;
 use crate::models::ui::UIEvent;
 use crate::views::dock::trade::trade_summary_ui;
 use crate::Channels;
-use egui::{CollapsingHeader, Ui};
+use egui::{CollapsingHeader, CornerRadius, Margin, Ui};
 use egui_dock::tab_viewer::OnCloseResponse;
-use egui_dock::{DockArea, DockState, NodeIndex, SurfaceIndex, TabIndex, TabViewer};
+use egui_dock::{
+    DockArea, DockState, NodeIndex, OverlayType, Style, SurfaceIndex, TabAddAlign, TabIndex,
+    TabViewer,
+};
 use engine::controllers::Output;
 use std::collections::HashMap;
 use std::fs;
@@ -214,6 +217,10 @@ impl TabViewer for MyTabViewer {
             }
             PaneType::TableView(file_name) => {
                 let dataframes = Arc::clone(&self.dataframes);
+                while dataframes.try_lock().is_err() {
+                    // loading screen
+                    ui.label("Loading data...");
+                }
                 if let Some(out) = dataframes.lock().unwrap().get(file_name) {
                     if let Some(table) = out.get_tables() {
                         for (df_name, df) in table {
@@ -228,6 +235,10 @@ impl TabViewer for MyTabViewer {
             }
             PaneType::GraphView(file_name) => {
                 let dataframes = Arc::clone(&self.dataframes);
+                while dataframes.try_lock().is_err() {
+                    // loading screen
+                    ui.label("Loading data...");
+                }
                 if let Some(out) = dataframes.lock().unwrap().get(file_name) {
                     if let Some(graph) = out.get_graph() {
                         graph::DrawGraph::new(graph.clone(), out.get_trades()).draw(ui);
@@ -239,6 +250,10 @@ impl TabViewer for MyTabViewer {
 
             PaneType::TradeView(file_name) => {
                 let dataframes = Arc::clone(&self.dataframes);
+                while dataframes.try_lock().is_err() {
+                    // loading screen
+                    ui.label("Loading data...");
+                }
                 if let Some(out) = dataframes.lock().unwrap().get(file_name) {
                     if let Some(trades) = out.get_trades() {
                         let summary = match out.get_trades() {
@@ -317,11 +332,28 @@ impl PaneDock {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui, tab_viewer: &mut MyTabViewer) {
+        // Inherit the look and feel from egui.
+        let mut style = Style::from_egui(ui.style());
+
+        // Modify a few fields.
+        style.overlay.overlay_type = OverlayType::Widgets;
+        style.buttons.add_tab_align = TabAddAlign::Left;
+        style.main_surface_border_rounding = CornerRadius::ZERO;
+        style.tab_bar.corner_radius = CornerRadius::ZERO;
+        style.tab.tab_body.corner_radius = CornerRadius::ZERO;
+        style.tab.tab_body.inner_margin = Margin {
+            left: 6,
+            right: 6,
+            top: 4,
+            bottom: 4,
+        };
+
         DockArea::new(&mut self.dock_state)
             .show_add_buttons(false)
             .show_close_buttons(true)
             .show_leaf_close_all_buttons(false)
             .show_leaf_collapse_buttons(false)
+            .style(style)
             .show_inside(ui, tab_viewer);
     }
 }
