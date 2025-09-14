@@ -1,0 +1,12 @@
+[package]
+name = "qstudio_tcp"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+
+busbar = { path = "../busbar" }
+serde = { version = "1.0.219", features = ["derive"] }
+log = "0.4"
+crossbeam-channel = "0.5.6"
+events = { path = "../events" }

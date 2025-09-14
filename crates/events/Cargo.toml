@@ -1,0 +1,10 @@
+[package]
+name = "events"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+serde = { version = "1.0.219", features = ["derive"] }
+busbar = { path = "../busbar" }
+crossbeam-channel = "0.5.6"
+engine = { path = "../engine" }

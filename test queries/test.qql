@@ -3,7 +3,7 @@
 FRAME aapl
 	HISTORICAL
 	TICKER aapl
-	FROM 20100101 TO 20250801
+	FROM 20200101 TO 20250801
 	PULL open, close, low, high
 	CALC open, close DIFFERENCE CALLED oc_diff
 	CALC high, low DIFFERENCE CALLED hl_diff

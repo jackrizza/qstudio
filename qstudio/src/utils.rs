@@ -1,33 +1,71 @@
-use crate::views::dock::PaneType;
+use engine::Engine;
+use events::events::{
+    engine::EngineEvent,
+    notifications::{NotificationEvent, NotificationKind},
+};
+use std::collections::HashMap;
 
-pub fn match_file_extension_for_pane_type(
-    pane_type: &crate::models::ui::UIEventPane,
-    _file_name: &str,
-) -> PaneType {
-    match pane_type {
-        crate::models::ui::UIEventPane::TradeView(file_name) => {
-            PaneType::TradeView(file_name.into())
-        }
-
-        crate::models::ui::UIEventPane::FlowCharView(file_name) => {
-            PaneType::FlowCharView(file_name.into())
-        }
-
-        crate::models::ui::UIEventPane::TableView(file_name) => {
-            PaneType::TableView(file_name.into())
-        }
-
-        crate::models::ui::UIEventPane::GraphView(file_name) => {
-            PaneType::GraphView(file_name.into())
-        }
-        crate::models::ui::UIEventPane::Text(file_name) => {
-            match file_name.split('.').last().unwrap_or("") {
-                "md" | "markdown" => PaneType::MarkDown(file_name.into()),
-                "txt" | "rs" | "py" | "js" | "java" | "c" | "cpp" | "qql" => {
-                    PaneType::CodeEditor(file_name.into())
+pub fn handle_engine_event(
+    event: EngineEvent,
+    engines: &mut HashMap<String, Engine>,
+) -> NotificationEvent {
+    match event {
+        EngineEvent::Start { filename } => {
+            if engines.contains_key(&filename) {
+                log::warn!("Engine for file {} is already running.", filename);
+                NotificationEvent {
+                    kind: NotificationKind::Warning,
+                    message: format!("Engine for file {} is already running.", filename),
                 }
-                _ => PaneType::Blank,
+            } else {
+                match Engine::new(&filename) {
+                    Ok(engine) => {
+                        engines.insert(filename.clone(), engine);
+                        log::info!("Started engine for file: {}", filename);
+                        NotificationEvent {
+                            kind: NotificationKind::Info,
+                            message: format!("Started engine for file: {}", filename),
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to start engine for file {}: {}", filename, e);
+                        NotificationEvent {
+                            kind: NotificationKind::Error,
+                            message: format!("Failed to start engine for file {}: {}", filename, e),
+                        }
+                    }
+                }
             }
-        } // Add other mappings as needed
+        }
+        EngineEvent::Stop { filename } => {
+            if engines.remove(&filename).is_some() {
+                log::info!("Stopped engine for file: {}", filename);
+                NotificationEvent {
+                    kind: NotificationKind::Info,
+                    message: format!("Stopped engine for file: {}", filename),
+                }
+            } else {
+                log::warn!("No running engine found for file: {}", filename);
+                NotificationEvent {
+                    kind: NotificationKind::Warning,
+                    message: format!("No running engine found for file: {}", filename),
+                }
+            }
+        }
+
+        EngineEvent::Status { code, message } => {
+            log::info!("Engine status - Code: {}, Message: {}", code, message);
+            NotificationEvent {
+                kind: NotificationKind::Info,
+                message: format!("Engine status - Code: {}, Message: {}", code, message),
+            }
+        }
+        EngineEvent::Status { code, message } => {
+            log::info!("Engine status - Code: {}, Message: {}", code, message);
+            NotificationEvent {
+                kind: NotificationKind::Info,
+                message: format!("Engine status - Code: {}, Message: {}", code, message),
+            }
+        }
     }
 }

@@ -1,14 +1,14 @@
 FRAME watch
 	HISTORICAL
     TICKER ^vix
-    FROM 20100101 TO 20250801
+    FROM 20200101 TO 20250801
     PULL open, close, low, high
 	CALC 50 CONSTANT CALLED index_level
 
 FRAME action
 	HISTORICAL
     TICKER spy
-    FROM 20100101 TO 20250801
+    FROM 20200101 TO 20250801
     PULL open, close, low, high
 	CALC open VOLATILITY CALLED open_vol
 	CALC open DOUBLE_VOLATILITY CALLED open_double_vol

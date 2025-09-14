@@ -1,0 +1,26 @@
+-- This test is for the foundation of models
+-- and functions
+
+
+-- something to note. qql is not case sensitive but when developing
+-- functions I found it easier to distiguious internal functions from 
+-- built in functions
+FUNC foo
+    -- This is theory is the same as def foo(open) : in python
+    TAKES open
+    VAR output
+    ADD open, 50 INTO output
+    RETURN ouput
+
+FRAME base
+    HISTORICAL
+    TICKER aapl
+    FROM 20200101 TO 20250101
+    PULL open, close, low, high
+    -- Next is to add a function
+    -- CALC is always used to call functions inside frames
+    CALC open foo CALLED foo_open
+
+MODEL base
+    FORECAST open
+    
