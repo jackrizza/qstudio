@@ -1,13 +1,19 @@
+use busbar::Aluminum;
+
 use super::sidebar::SideBar;
+use events::Event;
+use std::sync::Arc;
 
 pub struct LeftBar {
+    aluminum: Arc<Aluminum<Event>>,
     pub sidebar: SideBar,
 }
 
 impl LeftBar {
-    pub fn new() -> Self {
+    pub fn new(aluminum: Arc<Aluminum<Event>>) -> Self {
         LeftBar {
-            sidebar: SideBar::new(),
+            sidebar: SideBar::new(Arc::clone(&aluminum)),
+            aluminum,
         }
     }
     pub fn ui(&mut self, ctx: &egui::Context) {
@@ -19,9 +25,12 @@ impl LeftBar {
                 egui::Frame::none()
                     .inner_margin(0.0)
                     .outer_margin(0.0)
+                    .fill(theme::get_mode_theme(ctx).crust),
             )
-            .show(ctx, |ui| {
-                self.sidebar.ui(ui);
+            .show_animated(ctx, true, |ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+
+                self.sidebar.ui(ui, Arc::clone(&self.aluminum));
             });
     }
 }

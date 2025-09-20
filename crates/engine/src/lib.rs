@@ -51,6 +51,8 @@ pub struct Engine {
     status: EngineStatus,
     frames: HashMap<String, DataFrame>,
     code_diff: Option<CodeDiff>,
+    output: Option<Output>,
+    new_output: bool,
 }
 
 impl Engine {
@@ -65,6 +67,8 @@ impl Engine {
                 status: EngineStatus::Stopped,
                 frames: HashMap::new(),
                 code_diff: None,
+                output: None,
+                new_output: false,
             }),
             Err(e) => {
                 return Err(format!(
@@ -73,6 +77,19 @@ impl Engine {
                 ))
             }
         }
+    }
+
+    pub fn output_changed(&mut self) -> bool {
+        if self.output.is_none() {
+            return false;
+        }
+        let ret = self.new_output;
+        self.new_output = false;
+        ret
+    }
+
+    pub fn get_output(&self) -> Option<Output> {
+        self.output.clone()
     }
 
     pub fn status(&self) -> &EngineStatus {
@@ -96,7 +113,7 @@ impl Engine {
         }
     }
 
-    pub fn update_code(&mut self) -> Result<Output, String> {
+    pub fn update_code(&mut self) -> Result<(), String> {
         let code = fs::read_to_string(&self.file_path)
             .map_err(|e| format!("Failed to read file: {}", e))?;
 
@@ -109,7 +126,7 @@ impl Engine {
                 });
 
                 self.query = query;
-
+                log::info!("Code updated, diff: {:?}", self.code_diff);
                 self.run()
             }
             Err(e) => Err(format!(
@@ -119,14 +136,14 @@ impl Engine {
         }
     }
 
-    pub async fn restart(&mut self) -> Result<Output, String> {
+    pub async fn restart(&mut self) -> Result<(), String> {
         self.status = EngineStatus::Stopped;
         self.code_diff = None;
 
         self.run()
     }
 
-    pub fn run(&mut self) -> Result<Output, String> {
+    pub fn run(&mut self) -> Result<(), String> {
         // first iter through models in frame and pull data,
         // this will also handle actions on models
 
@@ -242,14 +259,16 @@ impl Engine {
             });
         }
 
-        Ok(Output::Data {
+        self.output = Some(Output::Data {
             graph,
             tables: self.frames.clone(),
             trades: t,
-        })
-    }
+        });
 
-    
+        self.new_output = true;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -259,8 +278,8 @@ mod tests {
 
     use super::Engine;
 
-    #[tokio::test]
-    async fn test_engine() -> Result<(), ()> {
+    #[test]
+    fn test_engine() {
         let src = indoc! {r#"
             FRAME test
                 HISTORICAL 
@@ -280,30 +299,6 @@ mod tests {
         let mut engine = Engine::new(&src).unwrap();
         println!("Engine : {:#?}", engine.query());
 
-        let result = match engine.run() {
-            Ok(output) => output,
-            Err(e) => {
-                println!("Error running engine: {}", e);
-                return Err(());
-            }
-        };
-
-        match result {
-            Output::Data {
-                graph: _,
-                tables,
-                trades,
-            } => {
-                if trades.is_none() {
-                    return Err(());
-                }
-                println!("tables: {:#?}", tables);
-                println!("trades: {:#?}", trades.unwrap());
-            }
-            _ => return Err(()),
-        }
-
-        // If we reach here, the engine ran successfully.
-        Ok(())
+        assert_eq!(engine.run().is_ok(), true);
     }
 }

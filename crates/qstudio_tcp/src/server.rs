@@ -1,6 +1,5 @@
 use busbar::{Copper, MakeT, Response, Unravel};
 use crossbeam_channel::Sender;
-use events::EventType;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::net::{TcpListener, TcpStream};
@@ -85,7 +84,7 @@ impl Server {
     {
         match message {
             Copper::ToClient { .. } => return B::default(),
-            Copper::ToServer { client_id, payload } => {
+            Copper::ToServer { payload, .. } => {
                 // do something with the payload
                 let tx = match tx.get(&payload.get_type()) {
                     Some(sender) => sender.clone(),

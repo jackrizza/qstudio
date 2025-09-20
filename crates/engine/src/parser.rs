@@ -24,12 +24,12 @@
 // or enforcement logic as needed.
 // -----------------------------------------------------------------------------
 
-use std::iter::Peekable;
-
 use crate::lexer::Lexer;
 use crate::lexer::{Keyword, Token, TokenKind}; // assuming you expose Lexer in lexer.rs
 use polars::frame::DataFrame;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::iter::Peekable;
 
 /* ------------------------------- AST types ------------------------------- */
 
@@ -124,7 +124,7 @@ impl DrawCommand {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum DrawType {
     Line(String, Vec<f64>),                         // single series for line
     Bar(String, Vec<f64>),                          // (open, close) pairs for bar
@@ -145,7 +145,7 @@ impl DrawType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Graph {
     pub data: Vec<DrawType>,
     pub axis_labels: Vec<String>,
@@ -195,7 +195,7 @@ pub struct TradeSection {
     pub hold: i32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Trades {
     pub trades_table: DataFrame,
     pub trades_graph: Vec<([[f64; 2]; 4], [[f64; 2]; 4])>,

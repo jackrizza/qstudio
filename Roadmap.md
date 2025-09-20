@@ -14,6 +14,8 @@ The outcome of this version is to offload the calculations to a different thread
 to allow for continous operation.
 - move engine to a server
 - port gui to comunicate with server
+- widgets
+- viewing non-modeled stocks
 
 #### v0.3.0
 The outcome of this version is to add in live and paper trading as well bringing in LLM's

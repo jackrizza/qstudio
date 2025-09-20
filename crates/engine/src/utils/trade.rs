@@ -28,8 +28,9 @@ use uuid::Uuid;
 /// This function will process the trade_section and the frames to
 
 /// Processes the `TradeSection` and the associated frames to generate a trade DataFrame
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub struct TradeSummary {
     pub bar_chart_data: Vec<f64>,
     pub total_trades: usize,
@@ -520,21 +521,15 @@ pub fn trade_summary_util(
             .unwrap_or(0.0);
 
         if let Some(limit) = limit {
-            trade_summary
-                .bar_chart_data
-                .push(limit - entry);
+            trade_summary.bar_chart_data.push(limit - entry);
 
-            trade_summary.avg_loss_per_1000 +=
-                entry / 1000.0 * (limit - entry);
+            trade_summary.avg_loss_per_1000 += entry / 1000.0 * (limit - entry);
         }
 
         if let Some(profit) = profit {
-            trade_summary
-                .bar_chart_data
-                .push(profit - entry);
+            trade_summary.bar_chart_data.push(profit - entry);
 
-            trade_summary.avg_win_per_1000 +=
-                entry / 1000.0 * (profit - entry);
+            trade_summary.avg_win_per_1000 += entry / 1000.0 * (profit - entry);
         }
     }
 

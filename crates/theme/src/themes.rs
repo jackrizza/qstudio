@@ -1,4 +1,4 @@
-use crate::egui::Color32;
+use egui::Color32;
 
 /// The colors for a theme variant.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -87,3 +87,28 @@ pub const GITHUB_DARK: Theme = Theme {
     mantle: Color32::from_rgb(22, 27, 34),
     crust: Color32::from_rgb(0, 0, 0),
 };
+
+pub fn brighter(color: Color32) -> Color32 {
+    // Make the color 30% brighter
+    let brighten = |c: egui::Color32| {
+        let brighten_channel = |v: u8| {
+            let v = v as f32;
+            ((v + (255.0 - v) * 0.05).round()).clamp(0.0, 255.0) as u8
+        };
+        egui::Color32::from_rgba_premultiplied(
+            brighten_channel(c.r()),
+            brighten_channel(c.g()),
+            brighten_channel(c.b()),
+            c.a(),
+        )
+    };
+    brighten(color)
+}
+
+pub fn get_mode_theme(ctx: &egui::Context) -> Theme {
+    if ctx.style().visuals.dark_mode {
+        GITHUB_DARK
+    } else {
+        GITHUB_LIGHT
+    }
+}

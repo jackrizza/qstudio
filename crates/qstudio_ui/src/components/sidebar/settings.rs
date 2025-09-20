@@ -5,7 +5,7 @@ pub fn settings_ui(ui: &mut egui::Ui) {
         .show(ui, |ui| {
             ui.vertical(|ui| {
                 ui.set_min_height(ui.available_height());
-                ui.set_max_width(256.0);
+                ui.set_max_width(270.0);
                 ui.add_space(12.0);
                 ui.heading("Settings");
                 ui.separator();

@@ -1,13 +1,13 @@
 use polars::frame::DataFrame;
 use std::collections::HashMap;
-
+use serde::{Deserialize, Serialize};
 pub mod fundamentals;
 pub mod historical;
 pub mod live;
 
 use crate::parser::{Graph, Trades};
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Output {
     Pending,
     Data {
