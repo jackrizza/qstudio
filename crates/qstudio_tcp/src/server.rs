@@ -76,15 +76,32 @@ impl Server {
             match line {
                 Ok(message) => {
                     let copper: Copper<T> = Copper::from_json(&message).unwrap();
+                    match &copper {
+                        Copper::RemoveClient {
+                            client_id,
+                            callback_address,
+                        } => {
+                            log::info!("Removing client with id: {}", client_id);
+                            client_list.lock().unwrap().remove_client(client_id);
+                            continue;
+                        }
+                        Copper::ToServer {
+                            client_id,
+                            callback_address,
+                            payload,
+                        } => {
+                            log::info!("Received from client {}: {}", client_id, payload);
+                            client_list.lock().unwrap().add_client(
+                                client_id.to_string(),
+                                callback_address.to_string(),
+                            );
 
-                    client_list.lock().unwrap().add_client(
-                        copper.client_id().to_string(),
-                        copper.callback_address().to_string(),
-                    );
+                            log::info!("Client List: {:#?}", client_list.lock().unwrap().clients);
 
-                    log::info!("Client List: {:#?}", client_list.lock().unwrap().clients);
-
-                    res.push(self.handle_message(copper, tx, Arc::clone(&client_list)));
+                            res.push(self.handle_message(copper, tx, Arc::clone(&client_list)));
+                        }
+                        _ => {}
+                    }
                 }
                 Err(e) => {
                     log::error!("Error reading from client {}: {}", addr, e);
@@ -107,6 +124,11 @@ impl Server {
     {
         match message {
             Copper::ToClient { .. } => return (Client::new("".into()), B::default()),
+            Copper::RemoveClient { client_id, callback_address } => {
+                log::info!("Removing client with id: {}", client_id);
+                client_list.lock().unwrap().remove_client(&client_id);
+                return (Client::new("".into()), B::default());
+            }
             Copper::ToServer {
                 client_id,
                 callback_address,

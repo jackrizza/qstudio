@@ -25,4 +25,8 @@ impl ClientList {
     pub fn get_client(&self, client_id: &str) -> Option<Client> {
         self.clients.get(client_id).cloned()
     }
+
+    pub fn remove_client(&mut self, client_id: &str) {
+        self.clients.remove(client_id);
+    }
 }

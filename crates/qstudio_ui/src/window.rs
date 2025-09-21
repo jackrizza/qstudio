@@ -193,6 +193,12 @@ impl QStudioApp {
                                 UiEvent::CloseWindow => {
                                     // Example action: Close the current window
                                     log::info!("Handling CloseWindow event");
+                                    client.send::<String>(Copper::RemoveClient {
+                                        client_id: id_clone.clone(),
+                                        callback_address: rx_address.clone(),
+                                    }).unwrap_or_else(|e| {
+                                        log::error!("Error sending RemoveClient: {}", e);
+                                    });
                                     // Implement the logic to close the current window here
                                     arc_main_window_tx
                                         .send(crate::WindowRequest::CloseWindow {

@@ -12,6 +12,10 @@ pub enum Copper<T> {
         callback_address: String,
         payload: T,
     },
+    RemoveClient {
+        client_id: String,
+        callback_address: String,
+    },
 }
 
 impl<T> Copper<T> {
@@ -45,6 +49,7 @@ impl<T> Copper<T> {
         match self {
             Copper::ToClient { client_id, .. } => client_id.clone(),
             Copper::ToServer { client_id, .. } => client_id.clone(),
+            Copper::RemoveClient { client_id, .. } => client_id.clone(),
         }
     }
 
@@ -52,6 +57,9 @@ impl<T> Copper<T> {
         match self {
             Copper::ToClient { .. } => "".into(),
             Copper::ToServer {
+                callback_address, ..
+            } => callback_address.clone(),
+            Copper::RemoveClient {
                 callback_address, ..
             } => callback_address.clone(),
         }
@@ -71,6 +79,13 @@ impl<T> Copper<T> {
                 client_id,
                 callback_address,
                 payload: f(payload),
+            },
+            Copper::RemoveClient {
+                client_id,
+                callback_address,
+            } => Copper::RemoveClient {
+                client_id,
+                callback_address,
             },
         }
     }
