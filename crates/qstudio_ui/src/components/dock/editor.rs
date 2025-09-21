@@ -1,4 +1,3 @@
-use crate::EngineEvent;
 use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
 use std::sync::{Arc, Mutex};
 

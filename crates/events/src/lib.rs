@@ -11,6 +11,7 @@ use events::engine::EngineEvent;
 use events::files::FileEvent;
 use events::notifications::NotificationEvent;
 
+
 use crate::events::notifications::NotificationKind;
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
@@ -153,13 +154,13 @@ impl Unravel<EventType, Event, EventResponse> for Event {
     fn get_type(&self) -> EventType {
         self.event_type()
     }
-    fn do_something(&self, engine_tx: Sender<Event>) -> EventResponse {
+    fn do_something<C>(&self, engine_tx: Sender<(C, Event)>, client: C) -> EventResponse {
         match self {
             Event::Connection { client_id, message } => {
                 EventResponse::Success(format!("Client {}: {}", client_id, message))
             }
-            Event::EngineEvent(engine_event) => engine_event.execute(engine_tx),
-            Event::NotificationEvent(notification_event) => notification_event.execute(engine_tx),
+            Event::EngineEvent(engine_event) => engine_event.execute(engine_tx, client),
+            Event::NotificationEvent(notification_event) => notification_event.execute(engine_tx, client),
             Event::FileEvent(file_event) => EventResponse::FileEvent(file_event.clone()),
             Event::DockEvent(dock_event) => EventResponse::DockEvent(dock_event.clone()),
             Event::UiEvent(ui_event) => EventResponse::UiEvent(ui_event.clone()),

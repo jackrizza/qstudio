@@ -19,6 +19,7 @@ use std::collections::HashMap;
 // Add these imports for CommonMark markdown rendering
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
+use qstudio_tcp::Client;
 // Import Notification type
 
 mod editor;
@@ -78,12 +79,16 @@ impl PaneType {
 
 #[derive(Clone)]
 pub struct MyTabViewer {
-    pane_aluminum: Arc<Aluminum<events::Event>>,
+    pane_aluminum: Arc<Aluminum<(Client, events::Event)>>,
+    only_client: Client,
 }
 
 impl MyTabViewer {
-    pub fn new(pane_aluminum: Arc<Aluminum<events::Event>>) -> Self {
-        MyTabViewer { pane_aluminum }
+    pub fn new(pane_aluminum: Arc<Aluminum<(Client, events::Event)>>, only_client: Client) -> Self {
+        MyTabViewer {
+            pane_aluminum,
+            only_client,
+        }
     }
 }
 
@@ -129,10 +134,13 @@ impl TabViewer for MyTabViewer {
                     log::info!("Saving file: {}", file_name);
                     self.pane_aluminum
                         .frontend_tx
-                        .send(Event::EngineEvent(EngineEvent::SaveFile {
-                            filename: file_name.clone(),
-                            content: buffer.clone(),
-                        }))
+                        .send((
+                            self.only_client.clone(),
+                            Event::EngineEvent(EngineEvent::SaveFile {
+                                filename: file_name.clone(),
+                                content: buffer.clone(),
+                            }),
+                        ))
                         .unwrap_or_else(|e| {
                             log::error!("Failed to send SaveFile event: {}", e);
                         });
@@ -168,12 +176,13 @@ impl TabViewer for MyTabViewer {
 #[derive(Debug, Clone)]
 pub struct PaneDock {
     dock_state: DockState<PaneType>,
-    dock_aluminum: Arc<Aluminum<events::Event>>,
+    dock_aluminum: Arc<Aluminum<(Client, events::Event)>>,
     panel_channels: HashMap<String, Vec<(Sender<Output>, Receiver<Output>)>>,
+    only_client: Client,
 }
 
 impl PaneDock {
-    pub fn new(dock_aluminum: Arc<Aluminum<events::Event>>) -> Self {
+    pub fn new(dock_aluminum: Arc<Aluminum<(Client, events::Event)>>, only_client: Client) -> Self {
         let tabs = vec![PaneType::MarkDown {
             name: "Hello World".into(),
             content: "# Welcome to QStudio\nThis is a markdown pane.".into(),
@@ -182,13 +191,14 @@ impl PaneDock {
             dock_state: DockState::new(tabs),
             dock_aluminum,
             panel_channels: HashMap::new(),
+            only_client,
         }
     }
 
     fn pump_snapshots(&mut self, ui: &mut Ui) {
         // Drain all pending messages and keep only the latest Fs snapshot
         let mut updated = false;
-        while let Ok(ev) = self.dock_aluminum.dock_rx.try_recv() {
+        while let Ok((client, ev)) = self.dock_aluminum.dock_rx.try_recv() {
             if let Event::DockEvent(dock_event) = ev {
                 match dock_event {
                     events::events::dock::DockEvent::ShowFile { name, buffer } => {
@@ -207,11 +217,11 @@ impl PaneDock {
                             Some("qql") => {
                                 self.dock_aluminum
                                     .backend_tx
-                                    .send(Event::EngineEvent(
+                                    .send((self.only_client.clone(), Event::EngineEvent(
                                         events::events::engine::EngineEvent::Start {
                                             filename: name.clone(),
                                         },
-                                    ))
+                                    )))
                                     .unwrap_or_else(|e| {
                                         log::error!("Failed to send NewCodeExecution event: {}", e);
                                     });

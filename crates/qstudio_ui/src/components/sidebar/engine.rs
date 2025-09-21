@@ -1,5 +1,6 @@
 use busbar::Aluminum;
 use egui::RichText;
+use qstudio_tcp::Client;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -11,7 +12,8 @@ struct EngineItem {
     name: String,
     status: String,
     msg: Option<String>,
-    ui_aluminum: Arc<Aluminum<events::Event>>,
+    ui_aluminum: Arc<Aluminum<(Client, events::Event)>>,
+    only_client: Client,
 }
 
 impl EngineItem {
@@ -19,13 +21,15 @@ impl EngineItem {
         name: String,
         status: String,
         msg: Option<String>,
-        ui_aluminum: Arc<Aluminum<events::Event>>,
+        ui_aluminum: Arc<Aluminum<(Client, events::Event)>>,
+        only_client: Client,
     ) -> Self {
         Self {
             name,
             status,
             msg,
             ui_aluminum,
+            only_client,
         }
     }
 
@@ -64,9 +68,12 @@ impl EngineItem {
                         // Handle start button click
                         self.ui_aluminum
                             .frontend_tx
-                            .send(Event::EngineEvent(EngineEvent::Start {
-                                filename: self.name.clone(),
-                            }))
+                            .send((
+                                self.only_client.clone(),
+                                Event::EngineEvent(EngineEvent::Start {
+                                    filename: self.name.clone(),
+                                }),
+                            ))
                             .unwrap_or_else(|e| {
                                 log::error!("Failed to send StartEngine event: {}", e);
                             });
@@ -130,9 +137,12 @@ impl EngineItem {
                 // Handle view button click
                 self.ui_aluminum
                     .frontend_tx
-                    .send(Event::UiEvent(events::UiEvent::ShowGraph {
-                        name: self.name.clone(),
-                    }))
+                    .send((
+                        self.only_client.clone(),
+                        Event::UiEvent(events::UiEvent::ShowGraph {
+                            name: self.name.clone(),
+                        }),
+                    ))
                     .unwrap_or_else(|e| {
                         log::error!("Failed to send ShowGraph event: {}", e);
                     });
@@ -163,9 +173,12 @@ impl EngineItem {
                 // Handle view button click
                 self.ui_aluminum
                     .frontend_tx
-                    .send(Event::UiEvent(events::UiEvent::ShowTrades {
-                        name: self.name.clone(),
-                    }))
+                    .send((
+                        self.only_client.clone(),
+                        Event::UiEvent(events::UiEvent::ShowTrades {
+                            name: self.name.clone(),
+                        }),
+                    ))
                     .unwrap_or_else(|e| {
                         log::error!("Failed to send ShowTrades event: {}", e);
                     });
@@ -191,14 +204,19 @@ impl EngineItem {
 #[derive(Clone, Debug)]
 pub struct ActiveEngines {
     engines: Vec<EngineItem>,
-    engine_aluminum: Arc<Aluminum<events::Event>>,
+    engine_aluminum: Arc<Aluminum<(Client, events::Event)>>,
+    only_client: Client,
 }
 
 impl ActiveEngines {
-    pub fn new(engine_aluminum: Arc<Aluminum<events::Event>>) -> Self {
+    pub fn new(
+        engine_aluminum: Arc<Aluminum<(Client, events::Event)>>,
+        only_client: Client,
+    ) -> Self {
         ActiveEngines {
             engines: Vec::new(),
             engine_aluminum,
+            only_client,
         }
     }
 
@@ -206,8 +224,8 @@ impl ActiveEngines {
         let mut update = false;
 
         while let Ok(ev) = self.engine_aluminum.engine_rx.try_recv() {
-            log::info!("Engine sidebar received event: {}", ev);
-            if let Event::EngineEvent(engine_event) = ev {
+            log::info!("Engine sidebar received event: {}", ev.1);
+            if let Event::EngineEvent(engine_event) = ev.1 {
                 match engine_event {
                     events::events::engine::EngineEvent::NewEngineMonitor { name, status } => {
                         // Update or add the engine item
@@ -220,6 +238,7 @@ impl ActiveEngines {
                                 status,
                                 None,
                                 Arc::clone(&self.engine_aluminum),
+                                self.only_client.clone(),
                             ));
                         }
                         update = true;

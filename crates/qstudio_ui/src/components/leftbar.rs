@@ -2,18 +2,21 @@ use busbar::Aluminum;
 
 use super::sidebar::SideBar;
 use events::Event;
+use qstudio_tcp::Client;
 use std::sync::Arc;
 
 pub struct LeftBar {
-    aluminum: Arc<Aluminum<Event>>,
+    aluminum: Arc<Aluminum<(Client, Event)>>,
     pub sidebar: SideBar,
+    client: Client,
 }
 
 impl LeftBar {
-    pub fn new(aluminum: Arc<Aluminum<Event>>) -> Self {
+    pub fn new(aluminum: Arc<Aluminum<(Client, Event)>>, client: Client) -> Self {
         LeftBar {
-            sidebar: SideBar::new(Arc::clone(&aluminum)),
+            sidebar: SideBar::new(Arc::clone(&aluminum), client.clone()),
             aluminum,
+            client,
         }
     }
     pub fn ui(&mut self, ctx: &egui::Context) {

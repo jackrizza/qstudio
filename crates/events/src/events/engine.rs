@@ -14,11 +14,11 @@ pub enum EngineEvent {
     GetOutput { name: String },
     Output { name: String, data: Output },
     SaveFile { filename: String, content: String },
-    UpdateCode { filename: String},
+    UpdateCode { filename: String },
 }
 
 impl EngineEvent {
-    pub fn execute(&self, engine_tx: Sender<Event>) -> EventResponse {
+    pub fn execute<C>(&self, engine_tx: Sender<(C, Event)>, client: C) -> EventResponse {
         match self {
             EngineEvent::Start { filename } => {
                 if filename.split('.').last().unwrap_or("") != "qql" {
@@ -26,9 +26,12 @@ impl EngineEvent {
                         "Only .qql files are supported for engine start.".into(),
                     );
                 }
-                let _ = engine_tx.send(Event::EngineEvent(EngineEvent::Start {
-                    filename: filename.clone(),
-                }));
+                let _ = engine_tx.send((
+                    client,
+                    Event::EngineEvent(EngineEvent::Start {
+                        filename: filename.clone(),
+                    }),
+                ));
                 EventResponse::EngineEvent(EngineEvent::NewEngineMonitor {
                     name: filename.clone(),
                     status: "Started".into(),
@@ -42,16 +45,20 @@ impl EngineEvent {
                 code, message
             )),
             EngineEvent::NewEngineMonitor { name, status } => {
-                let _ = engine_tx.send(Event::EngineEvent(EngineEvent::NewEngineMonitor {
-                    name: name.clone(),
-                    status: status.clone(),
-                }));
+                let _ = engine_tx.send((
+                    client,
+                    Event::EngineEvent(EngineEvent::NewEngineMonitor {
+                        name: name.clone(),
+                        status: status.clone(),
+                    }),
+                ));
                 EventResponse::Info(format!("New engine monitor created: {}", name))
             }
             EngineEvent::GetOutput { name } => {
-                let _ = engine_tx.send(Event::EngineEvent(EngineEvent::GetOutput {
-                    name: name.clone(),
-                }));
+                let _ = engine_tx.send((
+                    client,
+                    Event::EngineEvent(EngineEvent::GetOutput { name: name.clone() }),
+                ));
                 EventResponse::Info(format!("Requested output for engine: {}", name))
             }
             EngineEvent::Output { name, data } => EventResponse::EngineEvent(EngineEvent::Output {
@@ -59,16 +66,22 @@ impl EngineEvent {
                 data: data.clone(),
             }),
             EngineEvent::SaveFile { filename, content } => {
-                let _ = engine_tx.send(Event::EngineEvent(EngineEvent::SaveFile {
-                    filename: filename.clone(),
-                    content: content.clone(),
-                }));
+                let _ = engine_tx.send((
+                    client,
+                    Event::EngineEvent(EngineEvent::SaveFile {
+                        filename: filename.clone(),
+                        content: content.clone(),
+                    }),
+                ));
                 EventResponse::Info(format!("Requested save for file: {}", filename))
             }
             EngineEvent::UpdateCode { filename } => {
-                let _ = engine_tx.send(Event::EngineEvent(EngineEvent::UpdateCode {
-                    filename: filename.clone(),
-                }));
+                let _ = engine_tx.send((
+                    client,
+                    Event::EngineEvent(EngineEvent::UpdateCode {
+                        filename: filename.clone(),
+                    }),
+                ));
                 EventResponse::Info(format!("Requested code update for file: {}", filename))
             }
         }

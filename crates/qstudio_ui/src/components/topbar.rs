@@ -2,18 +2,21 @@ use busbar::Aluminum;
 use egui::{self, Align, Layout, Sense, TextStyle, ViewportCommand};
 use egui_extras::{Size, StripBuilder};
 use events::{Event, UiEvent};
+use qstudio_tcp::Client;
 use std::sync::Arc;
 // In your TopBar struct:
 pub struct TopBar {
-    frontend_aluminum: Arc<Aluminum<Event>>,
+    frontend_aluminum: Arc<Aluminum<(Client, Event)>>,
     title_buf: String,
+    client: Client,
 }
 
 impl TopBar {
-    pub fn new(frontend_aluminum: Arc<Aluminum<Event>>) -> Self {
+    pub fn new(frontend_aluminum: Arc<Aluminum<(Client, Event)>>, client: Client) -> Self {
         Self {
             frontend_aluminum,
             title_buf: String::new(),
+            client,
         }
     }
 
@@ -155,7 +158,7 @@ impl TopBar {
                                 {
                                     let _ = self.frontend_aluminum
                                         .frontend_tx
-                                        .send(Event::UiEvent(UiEvent::OpenNewWindow));
+                                        .send(( self.client.clone(), Event::UiEvent(UiEvent::OpenNewWindow)));
                                 }
                                 ui.add_space(8.0);
                                 let right_bar_toggle = ui.add(
@@ -170,7 +173,7 @@ impl TopBar {
                                 if right_bar_toggle.clicked() {
                                     let _ = self.frontend_aluminum
                                         .frontend_tx
-                                        .send(Event::UiEvent(UiEvent::ToggleRightBar));
+                                        .send(( self.client.clone(), Event::UiEvent(UiEvent::ToggleRightBar)));
                                 }
                             });
                         });

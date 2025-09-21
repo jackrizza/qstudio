@@ -1,12 +1,9 @@
 use busbar::Copper;
-use std::io::{BufRead, BufReader, Write};
-use std::net::{TcpListener, TcpStream};
+use std::io::Write;
+use std::net::TcpStream;
 use std::thread;
 use std::time::Duration;
-
-use crossbeam_channel::{Receiver, Sender};
-use std::sync::Arc;
-
+#[derive(Debug, Clone)]
 pub struct Client {
     pub addr: String,
 }

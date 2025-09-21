@@ -2,30 +2,29 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
-use crossbeam_channel::{Receiver, Sender};
-use events::{Event, EventResponse, EventType, UiEvent};
 use busbar::{Copper, MakeT};
+use crossbeam_channel::{Receiver, Sender};
 use engine::Engine;
+use events::{Event, EventResponse, EventType, UiEvent};
+use qstudio_tcp::{Client, ClientList};
 
 use crate::utils::handle_engine_event;
 
 use crate::Args;
 
-/// Bring your crate types into scope as needed.
-/// use crate::{events, handle_engine_event, Args, Engine, Event, EventResponse, EventType, UiEvent, Copper};
-/// use qstudio_tcp;
-
 pub struct QStudioServer {
     args: Args,
 
-    engine_tx: Sender<Event>,
-    engine_rx: Receiver<Event>,
+    engine_tx: Sender<(Client, Event)>,
+    engine_rx: Receiver<(Client, Event)>,
 
-    fs_tx: Sender<Event>,
-    fs_rx: Receiver<Event>,
+    fs_tx: Sender<(Client, Event)>,
+    fs_rx: Receiver<(Client, Event)>,
 
-    dock_tx: Sender<Event>,
-    dock_rx: Receiver<Event>,
+    dock_tx: Sender<(Client, Event)>,
+    dock_rx: Receiver<(Client, Event)>,
+
+    client_list: Arc<Mutex<ClientList>>,
 }
 
 pub struct ServerHandles {
@@ -39,9 +38,9 @@ impl QStudioServer {
     pub fn new(args: Args) -> Self {
         log::info!("Starting QStudio Server...");
 
-        let (engine_tx, engine_rx) = crossbeam_channel::unbounded::<Event>();
-        let (fs_tx, fs_rx) = crossbeam_channel::unbounded::<Event>();
-        let (dock_tx, dock_rx) = crossbeam_channel::unbounded::<Event>();
+        let (engine_tx, engine_rx) = crossbeam_channel::unbounded::<(Client, Event)>();
+        let (fs_tx, fs_rx) = crossbeam_channel::unbounded::<(Client, Event)>();
+        let (dock_tx, dock_rx) = crossbeam_channel::unbounded::<(Client, Event)>();
 
         Self {
             args,
@@ -51,6 +50,7 @@ impl QStudioServer {
             fs_rx,
             dock_tx,
             dock_rx,
+            client_list: Arc::new(Mutex::new(ClientList::new())),
         }
     }
 
@@ -79,6 +79,7 @@ impl QStudioServer {
         let engine_tx = self.engine_tx.clone();
         let dock_tx = self.dock_tx.clone();
 
+        let client_list = Arc::clone(&self.client_list);
         thread::spawn(move || {
             log::info!("Starting Backend Server...");
 
@@ -89,7 +90,7 @@ impl QStudioServer {
             // Add other mappings as your protocol grows.
 
             let server = qstudio_tcp::Server::new(rx_address, tx_address);
-            server.listen::<EventType, Event, EventResponse>(txs);
+            server.listen::<EventType, Event, EventResponse>(txs, Arc::clone(&client_list));
         })
     }
 
@@ -101,18 +102,18 @@ impl QStudioServer {
 
         thread::spawn(move || {
             log::info!("Starting File System Listener...");
-            let client = qstudio_tcp::Client::new(tx_address);
 
             loop {
                 match rx.recv() {
-                    Ok(event) => {
+                    Ok((client, event)) => {
                         log::info!("File system event received: {}", event);
                         match event {
                             Event::FileEvent(file_event) => {
                                 let root = std::path::PathBuf::from(&root_dir);
                                 if let Some(response_event) = file_event.execute(&root) {
                                     if let Err(e) = client.send(Copper::ToServer {
-                                        client_id: 0,
+                                        client_id: "Test".into(),
+                                        callback_address: String::new(),
                                         payload: Event::FileEvent(response_event),
                                     }) {
                                         log::error!("Error sending file event response: {}", e);
@@ -144,17 +145,17 @@ impl QStudioServer {
 
         thread::spawn(move || {
             log::info!("Starting Dock Listener...");
-            let client = qstudio_tcp::Client::new(tx_address);
 
             loop {
                 match rx.recv() {
-                    Ok(event) => {
+                    Ok((client, event)) => {
                         log::info!("Dock event received: {}", event);
                         match event {
                             Event::DockEvent(dock_event) => {
                                 // Execute and return result to the server
                                 let _ = client.send(Copper::ToServer {
-                                    client_id: 0,
+                                    client_id: "Test".into(),
+                                    callback_address: String::new(),
                                     payload: Event::DockEvent(dock_event.execute().clone()),
                                 });
                             }
@@ -179,16 +180,15 @@ impl QStudioServer {
 
         thread::spawn(move || {
             log::info!("Starting Engine...");
-            let engines: Arc<Mutex<HashMap<String, Engine>>> =
-                Arc::new(Mutex::new(HashMap::new()));
-            let client = qstudio_tcp::Client::new(tx_address);
+            let engines: Arc<Mutex<HashMap<String, Engine>>> = Arc::new(Mutex::new(HashMap::new()));
 
-            let event_closure = |event: Event| match event {
+            let event_closure = |event: Event, client: Client| match event {
                 Event::EngineEvent(engine_event) => {
                     let notification =
                         handle_engine_event(engine_event, &mut engines.lock().unwrap());
                     match client.send(Copper::ToServer {
-                        client_id: 0,
+                        client_id: "Test".into(),
+                        callback_address: String::new(),
                         payload: notification.make_t(),
                     }) {
                         Ok(_) => log::info!("Engine event sent successfully"),
@@ -200,14 +200,15 @@ impl QStudioServer {
                 }
             };
 
-            let new_output_closure = || {
+            let new_output_closure = |client: Client| {
                 let mut guard = engines.lock().unwrap();
                 for (filename, engine) in guard.iter_mut() {
                     if engine.output_changed() {
                         if let Some(output) = engine.get_output() {
                             log::info!("Output updated for {}", filename);
                             if let Err(e) = client.send(Copper::ToServer {
-                                client_id: 0,
+                                client_id: "Test".into(),
+                                callback_address: String::new(),
                                 payload: Event::UiEvent(UiEvent::NewOutputFromServer {
                                     filename: filename.clone(),
                                     output,
@@ -219,13 +220,14 @@ impl QStudioServer {
                     }
                 }
             };
-
+            let mut parent_client = Client::new(tx_address.clone());
             loop {
-                new_output_closure();
+                new_output_closure(parent_client.clone());
                 match rx.recv() {
-                    Ok(event) => {
+                    Ok((client, event)) => {
                         log::info!("Engine received event: {}", event);
-                        event_closure(event);
+                        event_closure(event, client.clone());
+                        parent_client = client; // keep client alive
                     }
                     Err(e) => {
                         log::error!("Engine error receiving event: {}", e);
@@ -237,8 +239,18 @@ impl QStudioServer {
     }
 
     /// If you need access to the senders externally (optional helper):
-    pub fn senders(&self) -> (Sender<Event>, Sender<Event>, Sender<Event>) {
-        (self.fs_tx.clone(), self.engine_tx.clone(), self.dock_tx.clone())
+    pub fn senders(
+        &self,
+    ) -> (
+        Sender<(Client, Event)>,
+        Sender<(Client, Event)>,
+        Sender<(Client, Event)>,
+    ) {
+        (
+            self.fs_tx.clone(),
+            self.engine_tx.clone(),
+            self.dock_tx.clone(),
+        )
     }
 }
 

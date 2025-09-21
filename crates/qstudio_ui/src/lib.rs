@@ -1,265 +1,228 @@
+// lib.rs (or your top-level GUI file)
+
 mod components;
+mod window; // defines QStudioApp
 
-use egui::{Stroke, Ui, ViewportCommand};
-use events::events::engine::EngineEvent;
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::thread;
+use crossbeam_channel::{Receiver, Sender};
+use eframe::{self, egui};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
-use busbar::{Aluminum, Copper};
-use egui_notify::Toasts;
-use events::events::notifications::{NotificationEvent, NotificationKind};
-use events::{Event, EventResponse, EventType, UiEvent};
+use crate::window::QStudioApp;
 
-pub struct Window {
-    aluminum: Arc<Aluminum<Event>>,
-
-    notification: Toasts,
-
-    topbar: components::topbar::TopBar,
-    leftbar: components::leftbar::LeftBar,
-    bottombar: components::bottombar::BottomBar,
-    rightbar: components::rightbar::RightBar,
-    tabviewer: components::dock::MyTabViewer,
-    center: components::dock::PaneDock,
+// ---------- Requests coming from any window to the main ----------
+#[derive(Debug, Clone)]
+enum WindowRequest {
+    /// Ask the main app to open a new window. Optional human-readable hint/id.
+    OpenNew { preferred_id: Option<String> },
 }
 
-impl Window {
-    pub fn new(aluminum: Arc<Aluminum<events::Event>>) -> Self {
+// ---------- Per-window record held by the main ----------
+struct WindowRecord {
+    id: String,
+    viewport_id: egui::ViewportId,
+    app: Arc<Mutex<QStudioApp>>, // <-- interior mutability
+    is_main: bool,
+}
+
+// ---------- Main application ----------
+pub struct QStudioUI {
+    windows: HashMap<String, WindowRecord>,
+    main_id: String,
+
+    // Create-window plumbing
+    create_tx: Sender<WindowRequest>,
+    create_rx: Receiver<WindowRequest>,
+
+    // Networking bits
+    base_rx_host: String, // e.g. "127.0.0.1"
+    base_rx_port: u16,    // e.g. 7879
+    tx_address: String,   // unchanged for all windows (your original design)
+    used_ports: HashSet<u16>,
+}
+
+impl QStudioUI {
+    pub fn new(rx_address: String, tx_address: String) -> Self {
+        let (create_tx, create_rx) = crossbeam_channel::unbounded::<WindowRequest>();
+
+        let (host, port) = split_host_port(&rx_address, 7879);
+        let mut used_ports = HashSet::new();
+        used_ports.insert(port);
+
+        // Build main window first
+        let main_id = "Main".to_string();
+        let main_viewport = egui::ViewportId::ROOT; // root/main OS window
+        let main_app = Arc::new(Mutex::new(QStudioApp::new(
+            main_id.clone(),
+            format!("{}:{}", host, port),
+            tx_address.clone(),
+            create_tx.clone(),
+        )));
+
+        let mut windows = HashMap::new();
+        windows.insert(
+            main_id.clone(),
+            WindowRecord {
+                id: main_id.clone(),
+                viewport_id: main_viewport,
+                app: main_app,
+                is_main: true,
+            },
+        );
+
         Self {
-            aluminum: Arc::clone(&aluminum),
-            notification: Toasts::default(),
-            topbar: components::topbar::TopBar::new(Arc::clone(&aluminum)),
-            leftbar: components::leftbar::LeftBar::new(Arc::clone(&aluminum)),
-            rightbar: components::rightbar::RightBar::new(Arc::clone(&aluminum)),
-            bottombar: components::bottombar::BottomBar::new(),
-            tabviewer: components::dock::MyTabViewer::new(Arc::clone(&aluminum)),
-            center: components::dock::PaneDock::new(Arc::clone(&aluminum)),
+            windows,
+            main_id,
+            create_tx,
+            create_rx,
+            base_rx_host: host,
+            base_rx_port: port,
+            tx_address,
+            used_ports,
         }
     }
-}
 
-impl eframe::App for Window {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Draw first (lowest layer) once per frame:
-        if ctx.input(|i| i.pointer.any_down()) && !ctx.wants_pointer_input() {
-            // If the pointer is down and no widget wants it, start a drag the moment it moves
-            // You can also put this behind a small movement threshold if you prefer.
-            ctx.send_viewport_cmd(ViewportCommand::StartDrag);
-        }
-
-        self.topbar.ui(ctx);
-        if let Ok(not) = self.aluminum.notification_rx.try_recv() {
-            log::info!("UI received notification event: {}", not);
-            let notification = match not {
-                Event::NotificationEvent(notification) => notification,
-                _ => {
-                    log::warn!("UI received unsupported event type for notification");
-                    NotificationEvent {
-                        kind: NotificationKind::Warning,
-                        message: "Unsupported event type for notification".into(),
-                    }
-                }
-            };
-            create_toast(
-                notification.kind,
-                notification.message,
-                &mut self.notification,
-            );
-        }
-
-        self.leftbar.ui(ctx);
-
-        self.rightbar.ui(ctx);
-        egui::CentralPanel::default()
-            .frame(
-                egui::Frame::none()
-                    .inner_margin(0.0)
-                    .outer_margin(0.0)
-                    .fill(theme::get_mode_theme(ctx).base), // .stroke(Stroke::new(0.5, egui::Color32::BLACK)),
-            )
-            .show(ctx, |ui| {
-                ui.set_max_width(ui.available_width() - self.rightbar.width);
-                ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-
-                self.center.ui(ui, &mut self.tabviewer);
-            });
-
-        // self.bottombar.ui(ctx);
-        self.notification.show(ctx);
-    }
-}
-
-pub fn window(rx_address: String, tx_address: String) -> eframe::Result<()> {
-    let aluminum: Aluminum<Event> = Aluminum::new();
-    let aluminum = Arc::new(aluminum);
-
-    // Clone only the sender part if needed, or refactor Aluminum to provide a sender clone.
-    let backend_aluminum = aluminum.clone() as Arc<Aluminum<Event>>;
-    let tx_address_clone = tx_address.clone();
-
-    thread::spawn(move || {
-        log::info!("Starting Frontend Server...");
-
-        let mut txs = HashMap::new();
-        txs.insert(
-            events::EventType::UiEvent,
-            backend_aluminum.frontend_tx.clone(),
-        );
-        txs.insert(
-            events::EventType::NotificationEvent,
-            backend_aluminum.notification_tx.clone(),
-        );
-
-        txs.insert(
-            events::EventType::FileEvent,
-            backend_aluminum.filetree_tx.clone(),
-        );
-        txs.insert(
-            events::EventType::DockEvent,
-            backend_aluminum.dock_tx.clone(),
-        );
-        txs.insert(
-            events::EventType::EngineEvent,
-            backend_aluminum.engine_tx.clone(),
-        );
-
-        // Add other event types and their corresponding senders as needed.
-
-        let server_to_client =
-            qstudio_tcp::Server::new(rx_address.clone(), tx_address_clone.clone());
-        server_to_client.listen::<EventType, Event, EventResponse>(txs);
-    });
-
-    thread::spawn({
-        let backend_aluminum = aluminum.clone() as Arc<Aluminum<Event>>;
-        move || {
-            log::info!("Starting Backend Aluminum Listener...");
-            backend_aluminum.backend_listen();
-        }
-    });
-    let tx_address = tx_address.clone();
-    let aluminum_clone = aluminum.clone();
-    thread::spawn(move || {
-        log::info!("Starting UI Client...");
-        let client = qstudio_tcp::Client::new(tx_address.clone());
+    fn next_free_port(&mut self) -> u16 {
+        let mut p = self.base_rx_port.max(1);
         loop {
-            let evt = match aluminum_clone.frontend_rx.recv() {
-                Ok(event) => event,
-                Err(e) => {
-                    log::error!("Client error receiving event: {}", e);
-                    break;
-                }
-            };
+            p = p.saturating_add(1);
+            if !self.used_ports.contains(&p) {
+                self.used_ports.insert(p);
+                return p;
+            }
+        }
+    }
 
-            if evt.event_type() == EventType::UiEvent {
-                log::info!("UI Client received event: {}", evt);
-                match evt {
-                    Event::UiEvent(ui_event) => {
-                        match ui_event {
-                            // Handle specific UiEvent variants here
-                            // For example:
-                            // UiEvent::SomeAction { data } => { ... }
-                            UiEvent::ToggleRightBar => {
-                                // Example action: Toggle the visibility of the right bar
-                                log::info!("Handling ToggleRightBar event");
-                                // Implement the logic to toggle the right bar here
-                                aluminum_clone
-                                    .widget_tx
-                                    .send(Event::UiEvent(UiEvent::ToggleRightBar))
-                                    .unwrap_or_else(|e| {
-                                        log::error!("Failed to send ToggleRightBar event: {}", e);
-                                    });
-                            }
-                            UiEvent::OpenNewWindow => {
-                                // Example action: Open a new window
-                                log::info!("Handling OpenNewWindow event");
-                                // Implement the logic to open a new window here
-                            }
+    fn ensure_unique_id(&self, preferred: Option<&str>) -> String {
+        if let Some(p) = preferred {
+            if !self.windows.contains_key(p) {
+                return p.to_string();
+            }
+        }
+        // Fallback: Window-1, Window-2, ...
+        let mut i = 1usize;
+        loop {
+            let candidate = format!("Window-{}", i);
+            if !self.windows.contains_key(&candidate) {
+                return candidate;
+            }
+            i += 1;
+        }
+    }
 
-                            UiEvent::ShowGraph { name } => {
-                                log::info!("Handling ShowGraph for: {}", name);
-                                // Implement the logic to show the graph in the UI
-                                aluminum_clone
-                                    .dock_tx
-                                    .send(Event::DockEvent(
-                                        events::events::dock::DockEvent::ShowGraph { name },
-                                    ))
-                                    .unwrap_or_else(|e| {
-                                        log::error!("Failed to forward ShowGraph event: {}", e);
-                                    });
-                            }
-
-                            UiEvent::ShowTrades { name } => {
-                                log::info!("Handling ShowTrades for: {}", name);
-                                // Implement the logic to show the trades in the UI
-                                aluminum_clone
-                                    .dock_tx
-                                    .send(Event::DockEvent(
-                                        events::events::dock::DockEvent::ShowTrades { name },
-                                    ))
-                                    .unwrap_or_else(|e| {
-                                        log::error!("Failed to forward ShowTrades event: {}", e);
-                                    });
-                            }
-
-                            UiEvent::NewOutputFromServer { filename, output } => {
-                                log::info!("Handling NewOutputFromServer for file: {}", filename);
-                                // Implement the logic to update the UI with the new output
-                                aluminum_clone
-                                    .dock_tx
-                                    .send(Event::DockEvent(
-                                        events::events::dock::DockEvent::UpdateOutput {
-                                            name: filename,
-                                            content: output,
-                                        },
-                                    ))
-                                    .unwrap_or_else(|e| {
-                                        log::error!(
-                                            "Failed to forward NewOutputFromServer event: {}",
-                                            e
-                                        );
-                                    });
-                            } // Add handling for other UiEvent variants as needed
-
-                            _ => {
-                                log::warn!("Received unhandled UiEvent variant");
-                            }
-                        }
-                    }
-
-                    _ => {
-                        log::warn!("Received non-UiEvent in UI Client");
-                    }
-                }
-            } else {
-                log::info!("UI Client sending event to server: {}", evt.event_type());
-                match client.send(Copper::ToServer {
-                    client_id: 1,
-                    payload: evt,
-                }) {
-                    Ok(_) => log::info!("Event sent successfully"),
-                    Err(e) => log::error!("Error sending event: {}", e),
+    fn handle_requests(&mut self) {
+        while let Ok(msg) = self.create_rx.try_recv() {
+            match msg {
+                WindowRequest::OpenNew { preferred_id } => {
+                    let id = self.ensure_unique_id(preferred_id.as_deref());
+                    self.create_deferred_window(id);
                 }
             }
         }
-    });
+    }
 
-    // If Window only needs to send events, pass a sender clone; otherwise, refactor as needed.
-    // Here, we assume Window does not need the receiver.
-    let window = Window::new(Arc::clone(&aluminum));
+    fn create_deferred_window(&mut self, id: String) {
+        // Allocate a unique port & addresses
+        let port = self.next_free_port();
+        let rx_address = format!("{}:{}", self.base_rx_host, port);
+
+        // Build child app with a clone of create_tx so it can request new windows too
+        let app = Arc::new(Mutex::new(QStudioApp::new(
+            id.clone(),
+            rx_address,
+            self.tx_address.clone(),
+            self.create_tx.clone(),
+        )));
+
+        // Create a stable viewport id for this window
+        let viewport_id = egui::ViewportId::from_hash_of(&id);
+
+        self.windows.insert(
+            id.clone(),
+            WindowRecord {
+                id,
+                viewport_id,
+                app,
+                is_main: false,
+            },
+        );
+        log::info!("Created deferred window");
+    }
+}
+
+impl eframe::App for QStudioUI {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // 1) Drain any window-create requests first (deterministic mutations)
+        self.handle_requests();
+
+        // 2) Draw MAIN window (root viewport)
+        if let Some(main) = self.windows.get(&self.main_id) {
+            debug_assert!(main.is_main);
+            if let Ok(mut app) = main.app.lock() {
+                app.update(ctx);
+            }
+        }
+
+        // 3) Draw all DEFERRED windows
+        //    First, collect the data we need into a temporary vector,
+        //    so we don’t hold a &mut borrow into self.windows inside the closure.
+        let mut to_render: Vec<(egui::ViewportId, String, Arc<Mutex<QStudioApp>>)> = Vec::new();
+        for w in self.windows.values().filter(|w| !w.is_main) {
+            to_render.push((
+                w.viewport_id,
+                format!("QStudio – {}", w.id),
+                Arc::clone(&w.app),
+            ));
+        }
+
+        // 4) Now spawn each deferred viewport with a 'static, move closure
+        for (viewport_id, title, app_arc) in to_render {
+            ctx.show_viewport_deferred(
+                viewport_id,
+                egui::ViewportBuilder::default()
+                    .with_title(title)
+                    .with_inner_size([1280.0, 720.0])
+                    .with_inner_size([1280.0, 720.0])
+                    .with_decorations(false)
+                    .with_transparent(false),
+                move |ctx, class| {
+                    assert!(
+                        class == egui::ViewportClass::Deferred,
+                        "Backend must support multiple viewports"
+                    );
+                    if let Ok(mut app) = app_arc.lock() {
+                        app.update(ctx);
+                    }
+                },
+            );
+        }
+    }
+}
+
+// ---------- Helper: parse "host:port" safely ----------
+fn split_host_port(addr: &str, default_port: u16) -> (String, u16) {
+    match addr.rsplit_once(':') {
+        Some((host, port_str)) => {
+            let p = port_str.parse::<u16>().unwrap_or(default_port);
+            (host.to_string(), p)
+        }
+        None => (addr.to_string(), default_port),
+    }
+}
+
+// ---------- Top-level runner ----------
+pub fn window(rx_address: String, tx_address: String) -> eframe::Result<()> {
+    let app = QStudioUI::new(rx_address, tx_address);
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
+            .with_title("QStudio")
             .with_inner_size([1280.0, 720.0])
-            .with_min_inner_size([1280.0, 720.0])
-            // .with_movable_by_background(true)
+            .with_inner_size([1280.0, 720.0])
             .with_decorations(false)
-            .with_transparent(true), // To have rounded corners we need transparency
+            .with_transparent(false),
         hardware_acceleration: eframe::HardwareAcceleration::Required,
         renderer: eframe::Renderer::Wgpu,
-        depth_buffer: 0,
-        multisampling: 0,
         ..Default::default()
     };
 
@@ -268,21 +231,7 @@ pub fn window(rx_address: String, tx_address: String) -> eframe::Result<()> {
         options,
         Box::new(|cc| {
             egui_material_icons::initialize(&cc.egui_ctx);
-            Ok(Box::new(window))
+            Ok(Box::new(app))
         }),
     )
-}
-
-pub fn create_toast(kind: NotificationKind, msg: String, notification: &mut Toasts) {
-    match kind {
-        NotificationKind::Info => {
-            notification.success(msg);
-        }
-        NotificationKind::Warning => {
-            notification.warning(msg);
-        }
-        NotificationKind::Error => {
-            notification.error(msg);
-        }
-    }
 }

@@ -37,9 +37,9 @@ pub struct NotificationEvent {
 }
 
 impl NotificationEvent {
-    pub fn execute(&self, notification_tx: Sender<Event>) -> EventResponse {
+    pub fn execute<C>(&self, notification_tx: Sender<(C, Event)>, client: C) -> EventResponse {
         let not = self.clone();
-        let _ = notification_tx.send(Event::NotificationEvent(not));
+        let _ = notification_tx.send((client, Event::NotificationEvent(not)));
         EventResponse::Notification {
             parent_event_type: EventType::NotificationEvent,
             kind: self.kind.to_string(),

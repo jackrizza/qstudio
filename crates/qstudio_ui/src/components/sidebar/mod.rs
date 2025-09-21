@@ -14,6 +14,7 @@ mod settings;
 
 use engine::ActiveEngines;
 use filetree::FileTreeUi;
+use qstudio_tcp::Client;
 
 #[derive(Debug, Clone)]
 pub struct SideBar {
@@ -25,17 +26,19 @@ pub struct SideBar {
     pub filetree: FileTreeUi,
     pub active_engines: ActiveEngines,
     // Add other sidebar components as needed
+    only_client: Client,
 }
 
 impl SideBar {
-    pub fn new(filetree_arc: Arc<Aluminum<Event>>) -> Self {
+    pub fn new(filetree_arc: Arc<Aluminum<(Client, Event)>>, only_client: Client) -> Self {
         SideBar {
             show_folder_tree: false,
             show_settings: false,
             show_active_engines: false,
             show_search: false,
-            filetree: FileTreeUi::new(Arc::clone(&filetree_arc)),
-            active_engines: ActiveEngines::new(Arc::clone(&filetree_arc)),
+            filetree: FileTreeUi::new(Arc::clone(&filetree_arc), only_client.clone()),
+            active_engines: ActiveEngines::new(Arc::clone(&filetree_arc), only_client.clone()),
+            only_client,
         }
     }
 
@@ -49,7 +52,7 @@ impl SideBar {
 }
 
 impl SideBar {
-    pub fn ui(&mut self, ui: &mut egui::Ui, aluminum: Arc<Aluminum<Event>>) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, aluminum: Arc<Aluminum<(Client, Event)>>) {
         let primary_background = theme::get_mode_theme(ui.ctx()).crust;
         let secondary_background = primary_background;
 
@@ -164,9 +167,12 @@ impl SideBar {
                                 .show(ui, |ui| {
                                     if self.show_folder_tree {
                                         if !self.filetree.get_initial_listing {
-                                            let _ = aluminum.backend_tx.send(Event::FileEvent(
-                                        events::events::files::FileEvent::GetDirectoryListing,
-                                    ));
+                                            let _ = aluminum.backend_tx.send((
+                                                self.only_client.clone(),
+                                                Event::FileEvent(
+                                                    events::events::files::FileEvent::GetDirectoryListing,
+                                                ),
+                                            ));
                                             self.filetree.get_initial_listing = true;
                                         }
                                         self.filetree.ui(ui);

@@ -5,6 +5,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use qstudio_tcp::Client;
+
 // ---- Your Fs model comes from events::events::files ----
 type Fs = events::events::files::Fs;
 
@@ -60,11 +62,12 @@ struct FolderTree {
     sort_mode: SortMode,
     show_hidden: bool,
 
-    filetree_aluminum: Arc<Aluminum<Event>>,
+    filetree_aluminum: Arc<Aluminum<(Client, Event)>>,
+    only_client: Client,
 }
 
 impl FolderTree {
-    fn new(filetree_aluminum: Arc<Aluminum<Event>>) -> Self {
+    fn new(filetree_aluminum: Arc<Aluminum<(Client, Event)>>, only_client: Client) -> Self {
         Self {
             file_system: None,
             root_dir: PathBuf::new(),
@@ -77,6 +80,7 @@ impl FolderTree {
             sort_mode: SortMode::FoldersFirst,
             show_hidden: false,
             filetree_aluminum,
+            only_client,
         }
     }
 
@@ -340,15 +344,17 @@ impl FolderTree {
                     if resp.double_clicked() {
                         // this is where aluminum will send an event to the backend to open the file
 
-                        let _ = self.filetree_aluminum.backend_tx.send(Event::DockEvent(
-                            events::events::dock::DockEvent::OpenFile {
+                        let _ = self.filetree_aluminum.backend_tx.send((
+                            self.only_client.clone(),
+                            Event::DockEvent(events::events::dock::DockEvent::OpenFile {
                                 path: path.to_string_lossy().into(),
-                            },
+                            }),
                         ));
-                        let _ = self.filetree_aluminum.backend_tx.send(Event::EngineEvent(
-                            events::events::engine::EngineEvent::Start {
+                        let _ = self.filetree_aluminum.backend_tx.send((
+                            self.only_client.clone(),
+                            Event::EngineEvent(events::events::engine::EngineEvent::Start {
                                 filename: path.to_string_lossy().into(),
-                            },
+                            }),
                         ));
                     }
                     if resp.clicked() {
@@ -517,16 +523,18 @@ fn is_descendant(ancestor: &Path, candidate_child: &Path) -> bool {
 #[derive(Debug, Clone)]
 pub struct FileTreeUi {
     pub get_initial_listing: bool,
-    filetree_aluminum: Arc<Aluminum<Event>>,
+    filetree_aluminum: Arc<Aluminum<(Client, Event)>>,
     tree: FolderTree,
+    only_client: Client,
 }
 
 impl FileTreeUi {
-    pub fn new(filetree_aluminum: Arc<Aluminum<Event>>) -> Self {
+    pub fn new(filetree_aluminum: Arc<Aluminum<(Client, Event)>>, only_client: Client) -> Self {
         Self {
             get_initial_listing: false,
             filetree_aluminum: Arc::clone(&filetree_aluminum),
-            tree: FolderTree::new(Arc::clone(&filetree_aluminum)),
+            tree: FolderTree::new(Arc::clone(&filetree_aluminum), only_client.clone()),
+            only_client,
         }
     }
 
@@ -549,7 +557,7 @@ impl FileTreeUi {
             if let Event::FileEvent(events::events::files::FileEvent::DirectoryListing {
                 listing,
                 ..
-            }) = ev
+            }) = ev.1
             {
                 if let Some(list) = listing {
                     // Prefer Arc so we don’t deep-clone large trees

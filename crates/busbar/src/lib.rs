@@ -14,7 +14,7 @@ pub trait Unravel<A, T, B> {
     fn get_type(&self) -> A
     where
         A: std::fmt::Debug;
-    fn do_something(&self, tx: Sender<T>) -> B;
+    fn do_something<C>(&self, tx: Sender<(C, T)>, client: C) -> B;
 }
 
 pub trait Response<A, B> {

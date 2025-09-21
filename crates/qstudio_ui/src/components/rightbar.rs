@@ -3,12 +3,15 @@ use engine::controllers::Output;
 use events::Event;
 use std::sync::Arc;
 
+use qstudio_tcp::Client;
+
 pub struct RightBar {
     pub visible: bool,
     pub init: bool,
-    pub aluminum: Arc<Aluminum<Event>>,
+    pub aluminum: Arc<Aluminum<(Client, Event)>>,
     pub widgets: Vec<Widget>,
     pub width: f32,
+    only_client: Client,
 }
 
 pub enum Widget {
@@ -61,7 +64,7 @@ impl Widget {
 }
 
 impl RightBar {
-    pub fn new(aluminum: Arc<Aluminum<Event>>) -> Self {
+    pub fn new(aluminum: Arc<Aluminum<(Client, Event)>>, only_client: Client) -> Self {
         RightBar {
             visible: false,
             init: false,
@@ -74,12 +77,13 @@ impl RightBar {
                 Widget::Placeholder,
             ],
             width: 0.0,
+            only_client,
         }
     }
 
     fn pump_snapshots(&mut self, ctx: &egui::Context) {
         let update = false;
-        while let Ok(ev) = self.aluminum.widget_rx.try_recv() {
+        while let Ok((_client, ev)) = self.aluminum.widget_rx.try_recv() {
             log::info!("Right bar received event: {}", ev);
             // Handle events as needed
             if let Event::UiEvent(ui_event) = ev {
