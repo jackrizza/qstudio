@@ -67,9 +67,25 @@ impl TopBar {
                             };
                             let bs = egui::vec2(18.0, 18.0);
                             ui.horizontal(|ui| {
-                                let _ = ui.add_sized(bs, mk((252, 97, 92)));
-                                let _ = ui.add_sized(bs, mk((255,189, 46)));
-                                let _ = ui.add_sized(bs, mk(( 39,201, 63)));
+                                let close = ui.add_sized(bs, mk((252, 97, 92)));
+                                let min = ui.add_sized(bs, mk((255,189, 46)));
+                                let max = ui.add_sized(bs, mk(( 39,201, 63)));
+
+                                if close.clicked() {
+                                     let _ = self.frontend_aluminum
+                                        .frontend_tx
+                                        .send(( self.client.clone(), Event::UiEvent(UiEvent::CloseWindow)));
+                                }
+                                if min.clicked() {
+                                     let _ = self.frontend_aluminum
+                                        .frontend_tx
+                                        .send(( self.client.clone(), Event::UiEvent(UiEvent::MinimizeWindow)));
+                                }
+                                if max.clicked() {
+                                     let _ = self.frontend_aluminum
+                                        .frontend_tx
+                                        .send(( self.client.clone(), Event::UiEvent(UiEvent::MaximizeWindow)));
+                                }
                             });
                         });
 
@@ -173,7 +189,7 @@ impl TopBar {
                                 if right_bar_toggle.clicked() {
                                     let _ = self.frontend_aluminum
                                         .frontend_tx
-                                        .send(( self.client.clone(), Event::UiEvent(UiEvent::ToggleRightBar)));
+                                        .send(( self.client.clone(),Event::UiEvent(UiEvent::ToggleRightBar)));
                                 }
                             });
                         });

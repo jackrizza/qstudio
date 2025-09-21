@@ -184,8 +184,8 @@ pub struct PaneDock {
 impl PaneDock {
     pub fn new(dock_aluminum: Arc<Aluminum<(Client, events::Event)>>, only_client: Client) -> Self {
         let tabs = vec![PaneType::MarkDown {
-            name: "Hello World".into(),
-            content: "# Welcome to QStudio\nThis is a markdown pane.".into(),
+            name: "Cheat Sheet".into(),
+            content: include_str!("../../../../../qql.md").to_string(),
         }];
         PaneDock {
             dock_state: DockState::new(tabs),

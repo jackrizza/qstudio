@@ -80,7 +80,7 @@ impl QStudioApp {
         aluminum: Arc<Aluminum<(Client, Event)>>,
         client_list: Arc<Mutex<ClientList>>,
         main_window_tx: Sender<crate::WindowRequest>,
-        id : String,
+        id: String,
     ) {
         let aluminum = Arc::clone(&aluminum);
 
@@ -186,6 +186,21 @@ impl QStudioApp {
                                         .unwrap_or_else(|e| {
                                             log::error!(
                                                 "Failed to send OpenNewWindow request: {}",
+                                                e
+                                            );
+                                        });
+                                }
+                                UiEvent::CloseWindow => {
+                                    // Example action: Close the current window
+                                    log::info!("Handling CloseWindow event");
+                                    // Implement the logic to close the current window here
+                                    arc_main_window_tx
+                                        .send(crate::WindowRequest::CloseWindow {
+                                            id: id_clone.clone(),
+                                        })
+                                        .unwrap_or_else(|e| {
+                                            log::error!(
+                                                "Failed to send CloseWindow request: {}",
                                                 e
                                             );
                                         });

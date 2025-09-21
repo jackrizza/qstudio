@@ -1,43 +1,43 @@
-// lib.rs (or your top-level GUI file)
+// lib.rs
 
 mod components;
-mod window; // defines QStudioApp
+mod window;
 
 use crossbeam_channel::{Receiver, Sender};
 use eframe::{self, egui};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
+use uuid::Uuid;
+
 use crate::window::QStudioApp;
 
-// ---------- Requests coming from any window to the main ----------
+// Requests from any window to the main
 #[derive(Debug, Clone)]
 enum WindowRequest {
-    /// Ask the main app to open a new window. Optional human-readable hint/id.
     OpenNew { preferred_id: Option<String> },
+    CloseWindow { id: String },
 }
 
-// ---------- Per-window record held by the main ----------
+// Per-window record
 struct WindowRecord {
     id: String,
     viewport_id: egui::ViewportId,
-    app: Arc<Mutex<QStudioApp>>, // <-- interior mutability
+    app: Arc<Mutex<QStudioApp>>,
+    port: u16,          // <-- track the port so we can free it
     is_main: bool,
 }
 
-// ---------- Main application ----------
 pub struct QStudioUI {
     windows: HashMap<String, WindowRecord>,
     main_id: String,
 
-    // Create-window plumbing
     create_tx: Sender<WindowRequest>,
     create_rx: Receiver<WindowRequest>,
 
-    // Networking bits
-    base_rx_host: String, // e.g. "127.0.0.1"
-    base_rx_port: u16,    // e.g. 7879
-    tx_address: String,   // unchanged for all windows (your original design)
+    base_rx_host: String,
+    base_rx_port: u16,
+    tx_address: String,
     used_ports: HashSet<u16>,
 }
 
@@ -49,9 +49,9 @@ impl QStudioUI {
         let mut used_ports = HashSet::new();
         used_ports.insert(port);
 
-        // Build main window first
-        let main_id = "Main".to_string();
-        let main_viewport = egui::ViewportId::ROOT; // root/main OS window
+        let main_id = Uuid::new_v4().to_string();
+        let main_viewport = egui::ViewportId::ROOT;
+
         let main_app = Arc::new(Mutex::new(QStudioApp::new(
             main_id.clone(),
             format!("{}:{}", host, port),
@@ -66,6 +66,7 @@ impl QStudioUI {
                 id: main_id.clone(),
                 viewport_id: main_viewport,
                 app: main_app,
+                port,
                 is_main: true,
             },
         );
@@ -99,7 +100,6 @@ impl QStudioUI {
                 return p.to_string();
             }
         }
-        // Fallback: Window-1, Window-2, ...
         let mut i = 1usize;
         loop {
             let candidate = format!("Window-{}", i);
@@ -110,23 +110,38 @@ impl QStudioUI {
         }
     }
 
-    fn handle_requests(&mut self) {
+    fn handle_requests(&mut self, ctx: &egui::Context) {
+        let mut to_close: Vec<String> = Vec::new();
+
         while let Ok(msg) = self.create_rx.try_recv() {
             match msg {
                 WindowRequest::OpenNew { preferred_id } => {
                     let id = self.ensure_unique_id(preferred_id.as_deref());
                     self.create_deferred_window(id);
                 }
+                WindowRequest::CloseWindow { id } => {
+                    // Remember to close after the loop so we don’t mutate while iterating elsewhere
+                    to_close.push(id);
+                }
+            }
+        }
+
+        // Actually remove the windows and free their ports
+        for id in to_close {
+            if let Some(rec) = self.windows.remove(&id) {
+                self.used_ports.remove(&rec.port);
+                // Ensure the OS window is closed in case this was programmatic
+                // (If the user clicked the OS “X”, it’s already requested close; calling again is harmless)
+                ctx.send_viewport_cmd_to(rec.viewport_id, egui::ViewportCommand::Close);
+                log::info!("Closed deferred window {id}");
             }
         }
     }
 
     fn create_deferred_window(&mut self, id: String) {
-        // Allocate a unique port & addresses
         let port = self.next_free_port();
         let rx_address = format!("{}:{}", self.base_rx_host, port);
 
-        // Build child app with a clone of create_tx so it can request new windows too
         let app = Arc::new(Mutex::new(QStudioApp::new(
             id.clone(),
             rx_address,
@@ -134,7 +149,6 @@ impl QStudioUI {
             self.create_tx.clone(),
         )));
 
-        // Create a stable viewport id for this window
         let viewport_id = egui::ViewportId::from_hash_of(&id);
 
         self.windows.insert(
@@ -143,6 +157,7 @@ impl QStudioUI {
                 id,
                 viewport_id,
                 app,
+                port,     // track the port
                 is_main: false,
             },
         );
@@ -152,10 +167,10 @@ impl QStudioUI {
 
 impl eframe::App for QStudioUI {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // 1) Drain any window-create requests first (deterministic mutations)
-        self.handle_requests();
+        // 1) Drain requests (including Close) first
+        self.handle_requests(ctx);
 
-        // 2) Draw MAIN window (root viewport)
+        // 2) Main/root
         if let Some(main) = self.windows.get(&self.main_id) {
             debug_assert!(main.is_main);
             if let Ok(mut app) = main.app.lock() {
@@ -163,9 +178,7 @@ impl eframe::App for QStudioUI {
             }
         }
 
-        // 3) Draw all DEFERRED windows
-        //    First, collect the data we need into a temporary vector,
-        //    so we don’t hold a &mut borrow into self.windows inside the closure.
+        // 3) Deferred: collect first, then show with 'static closures
         let mut to_render: Vec<(egui::ViewportId, String, Arc<Mutex<QStudioApp>>)> = Vec::new();
         for w in self.windows.values().filter(|w| !w.is_main) {
             to_render.push((
@@ -175,16 +188,14 @@ impl eframe::App for QStudioUI {
             ));
         }
 
-        // 4) Now spawn each deferred viewport with a 'static, move closure
         for (viewport_id, title, app_arc) in to_render {
             ctx.show_viewport_deferred(
                 viewport_id,
                 egui::ViewportBuilder::default()
                     .with_title(title)
                     .with_inner_size([1280.0, 720.0])
-                    .with_inner_size([1280.0, 720.0])
                     .with_decorations(false)
-                    .with_transparent(false),
+                    .with_transparent(true),
                 move |ctx, class| {
                     assert!(
                         class == egui::ViewportClass::Deferred,
@@ -199,7 +210,6 @@ impl eframe::App for QStudioUI {
     }
 }
 
-// ---------- Helper: parse "host:port" safely ----------
 fn split_host_port(addr: &str, default_port: u16) -> (String, u16) {
     match addr.rsplit_once(':') {
         Some((host, port_str)) => {
@@ -210,7 +220,6 @@ fn split_host_port(addr: &str, default_port: u16) -> (String, u16) {
     }
 }
 
-// ---------- Top-level runner ----------
 pub fn window(rx_address: String, tx_address: String) -> eframe::Result<()> {
     let app = QStudioUI::new(rx_address, tx_address);
 
@@ -218,9 +227,8 @@ pub fn window(rx_address: String, tx_address: String) -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_title("QStudio")
             .with_inner_size([1280.0, 720.0])
-            .with_inner_size([1280.0, 720.0])
             .with_decorations(false)
-            .with_transparent(false),
+            .with_transparent(true),
         hardware_acceleration: eframe::HardwareAcceleration::Required,
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
