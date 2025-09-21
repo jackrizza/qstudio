@@ -189,7 +189,6 @@ impl PaneDock {
         // Drain all pending messages and keep only the latest Fs snapshot
         let mut updated = false;
         while let Ok(ev) = self.dock_aluminum.dock_rx.try_recv() {
-            log::info!("Dock received event: {}", ev);
             if let Event::DockEvent(dock_event) = ev {
                 match dock_event {
                     events::events::dock::DockEvent::ShowFile { name, buffer } => {
@@ -260,7 +259,6 @@ impl PaneDock {
                         updated = true;
                     }
                     events::events::dock::DockEvent::UpdateOutput { name, content } => {
-                        log::info!("Updating output for {}: {:?}", name, content);
                         // Implement output updating logic here
                         if let Some(channels) = self.panel_channels.get(&name) {
                             for ch in channels {
