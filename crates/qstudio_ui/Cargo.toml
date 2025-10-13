@@ -14,7 +14,7 @@ egui-notify = "0.20.0"
 egui_dock = "0.17.0"
 egui_flex = "0.4.0"
 egui_material_icons = "0.4.0"
-egui_code_editor = { path = "../egui_code_editor" }
+egui_code_editor = { git = "https://github.com/jackrizza/egui_code_editor", branch = "main" }
 theme = { path = "../theme" }
 engine = { path = "../engine" }
 tokio = { version = "1.47.1", features = ["full"] }
