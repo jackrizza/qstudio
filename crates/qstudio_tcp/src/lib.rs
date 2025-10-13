@@ -6,23 +6,25 @@ pub use server::Server;
 
 use std::collections::HashMap;
 
-pub struct ClientList {
-    clients: HashMap<String, Client>, // Map client IDs to their addresses
+pub struct ClientList<T> {
+    clients: HashMap<String, T>, // Map client IDs to their addresses
 }
 
-impl ClientList {
+impl<T> ClientList<T> {
     pub fn new() -> Self {
         ClientList {
             clients: HashMap::new(),
         }
     }
 
-    pub fn add_client(&mut self, client_id: String, address: String) {
-        let client = Client::new(address);
-        self.clients.insert(client_id, client);
+    pub fn add_client(&mut self, client_id: String, t: T) {
+        self.clients.insert(client_id, t);
     }
 
-    pub fn get_client(&self, client_id: &str) -> Option<Client> {
+    pub fn get_client(&self, client_id: &str) -> Option<T>
+    where
+        T: Clone,
+    {
         self.clients.get(client_id).cloned()
     }
 

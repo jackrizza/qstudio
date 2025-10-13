@@ -2,10 +2,9 @@ use egui::{CornerRadius, Margin, Ui};
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_dock::{
     DockArea, DockState, NodeIndex, OverlayType, SeparatorStyle, Style, SurfaceIndex, TabAddAlign,
-    TabIndex, TabViewer,
+    TabViewer,
 };
 use engine::controllers::Output;
-use engine::Engine;
 use std::sync::Arc;
 
 use busbar::Aluminum;
@@ -28,8 +27,7 @@ mod markdown;
 mod table;
 mod trade;
 
-// Import TradeSummary type
-use engine::utils::trade::TradeSummary;
+use crate::throttle_repaint;
 
 // Use PaneType as your Tab data
 #[derive(Debug, Clone)]
@@ -217,11 +215,14 @@ impl PaneDock {
                             Some("qql") => {
                                 self.dock_aluminum
                                     .backend_tx
-                                    .send((self.only_client.clone(), Event::EngineEvent(
-                                        events::events::engine::EngineEvent::Start {
-                                            filename: name.clone(),
-                                        },
-                                    )))
+                                    .send((
+                                        self.only_client.clone(),
+                                        Event::EngineEvent(
+                                            events::events::engine::EngineEvent::Start {
+                                                filename: name.clone(),
+                                            },
+                                        ),
+                                    ))
                                     .unwrap_or_else(|e| {
                                         log::error!("Failed to send NewCodeExecution event: {}", e);
                                     });
@@ -296,6 +297,9 @@ impl PaneDock {
     pub fn ui(&mut self, ui: &mut egui::Ui, tab_viewer: &mut MyTabViewer) {
         // Inherit the look and feel from egui.
         self.pump_snapshots(ui);
+        if throttle_repaint(ui.ctx()) {
+            return; // early return if we decided to throttle
+        }
         let mut style = Style::from_egui(ui.style());
 
         // Modify a few fields.
@@ -339,6 +343,7 @@ impl PaneDock {
         };
 
         DockArea::new(&mut self.dock_state)
+            // .id(uuid::Uuid::new_v4().to_string().into())
             .show_add_buttons(false)
             .show_close_buttons(true)
             .show_leaf_close_all_buttons(false)

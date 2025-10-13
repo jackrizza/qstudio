@@ -5,6 +5,7 @@ mod window;
 
 use crossbeam_channel::{Receiver, Sender};
 use eframe::{self, egui};
+use puffin_egui::puffin;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
@@ -24,7 +25,7 @@ struct WindowRecord {
     id: String,
     viewport_id: egui::ViewportId,
     app: Arc<Mutex<QStudioApp>>,
-    port: u16,          // <-- track the port so we can free it
+    port: u16, // <-- track the port so we can free it
     is_main: bool,
 }
 
@@ -157,7 +158,7 @@ impl QStudioUI {
                 id,
                 viewport_id,
                 app,
-                port,     // track the port
+                port, // track the port
                 is_main: false,
             },
         );
@@ -169,6 +170,8 @@ impl eframe::App for QStudioUI {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // 1) Drain requests (including Close) first
         self.handle_requests(ctx);
+
+        // puffin_egui::profiler_window(ctx);
 
         // 2) Main/root
         if let Some(main) = self.windows.get(&self.main_id) {
@@ -193,10 +196,13 @@ impl eframe::App for QStudioUI {
                 viewport_id,
                 egui::ViewportBuilder::default()
                     .with_title(title)
-                    .with_inner_size([1280.0, 720.0])
+                    .with_inner_size([1400.0, 900.0])
                     .with_decorations(false)
                     .with_transparent(true),
                 move |ctx, class| {
+                    if throttle_repaint(ctx) {
+                        return; // early return if we decided to throttle
+                    }
                     assert!(
                         class == egui::ViewportClass::Deferred,
                         "Backend must support multiple viewports"
@@ -221,12 +227,14 @@ fn split_host_port(addr: &str, default_port: u16) -> (String, u16) {
 }
 
 pub fn window(rx_address: String, tx_address: String) -> eframe::Result<()> {
+    puffin::set_scopes_on(true);
+
     let app = QStudioUI::new(rx_address, tx_address);
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("QStudio")
-            .with_inner_size([1280.0, 720.0])
+            .with_inner_size([1400.0, 900.0])
             .with_decorations(false)
             .with_transparent(true),
         hardware_acceleration: eframe::HardwareAcceleration::Required,
@@ -238,8 +246,31 @@ pub fn window(rx_address: String, tx_address: String) -> eframe::Result<()> {
         "QStudio",
         options,
         Box::new(|cc| {
+            puffin::profile_function!();
             egui_material_icons::initialize(&cc.egui_ctx);
             Ok(Box::new(app))
         }),
     )
+}
+
+use std::time::Duration;
+
+fn throttle_repaint(ctx: &egui::Context) -> bool {
+    // Read current window state (for THIS viewport)
+    let info = ctx.input(|i| i.viewport().clone());
+    // If minimized, don’t waste frames. Repaint rarely.
+    if info.minimized.unwrap_or(false) {
+        ctx.request_repaint_after(Duration::from_millis(500));
+        return true; // tell caller to early-return
+    }
+    // If not focused (or possibly occluded), back off a bit.
+    // If your egui version exposes `i.viewport().occluded`, you can use it here:
+    // let occluded = ctx.input(|i| i.viewport().occluded.unwrap_or(false));
+    let focused = info.focused.unwrap_or(false);
+    if !focused {
+        ctx.request_repaint_after(Duration::from_millis(150));
+        // we still render (so the first frame after focus looks correct),
+        // but we avoid tight 60fps repaint loops.
+    }
+    false
 }

@@ -24,7 +24,7 @@ pub struct QStudioServer {
     dock_tx: Sender<(Client, Event)>,
     dock_rx: Receiver<(Client, Event)>,
 
-    client_list: Arc<Mutex<ClientList>>,
+    client_list: Arc<Mutex<ClientList<Client>>>,
 }
 
 pub struct ServerHandles {
@@ -90,7 +90,7 @@ impl QStudioServer {
             // Add other mappings as your protocol grows.
 
             let server = qstudio_tcp::Server::new(rx_address, tx_address);
-            server.listen::<EventType, Event, EventResponse>(txs, Arc::clone(&client_list));
+            server.listen::<EventType, Event, EventResponse, Client>(txs, Arc::clone(&client_list));
         })
     }
 
@@ -113,7 +113,7 @@ impl QStudioServer {
                                 if let Some(response_event) = file_event.execute(&root) {
                                     if let Err(e) = client.send(Copper::ToServer {
                                         client_id: "Test".into(),
-                                        callback_address: String::new(),
+                                        callback_address: client.addr.clone(),
                                         payload: Event::FileEvent(response_event),
                                     }) {
                                         log::error!("Error sending file event response: {}", e);
@@ -155,7 +155,7 @@ impl QStudioServer {
                                 // Execute and return result to the server
                                 let _ = client.send(Copper::ToServer {
                                     client_id: "Test".into(),
-                                    callback_address: String::new(),
+                                    callback_address: client.addr.clone(),
                                     payload: Event::DockEvent(dock_event.execute().clone()),
                                 });
                             }
@@ -188,7 +188,7 @@ impl QStudioServer {
                         handle_engine_event(engine_event, &mut engines.lock().unwrap());
                     match client.send(Copper::ToServer {
                         client_id: "Test".into(),
-                        callback_address: String::new(),
+                        callback_address: client.addr.clone(),
                         payload: notification.make_t(),
                     }) {
                         Ok(_) => log::info!("Engine event sent successfully"),
@@ -208,7 +208,7 @@ impl QStudioServer {
                             log::info!("Output updated for {}", filename);
                             if let Err(e) = client.send(Copper::ToServer {
                                 client_id: "Test".into(),
-                                callback_address: String::new(),
+                                callback_address: client.addr.clone(),
                                 payload: Event::UiEvent(UiEvent::NewOutputFromServer {
                                     filename: filename.clone(),
                                     output,

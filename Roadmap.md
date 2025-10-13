@@ -15,6 +15,9 @@ to allow for continous operation.
 - move engine to a server
 - port gui to comunicate with server
 - widgets
+- Geographical Map
+- Graph Node
+- Modular Providers
 - viewing non-modeled stocks
 
 #### v0.3.0

@@ -1,0 +1,25 @@
+name: Feature request
+description: Propose a new capability
+labels: ["type:feature"]
+body:
+  - type: input
+    id: outcome
+    attributes:
+      { label: Outcome (user-visible), placeholder: "What the user can do now" }
+    validations: { required: true }
+  - type: textarea
+    id: acceptance
+    attributes:
+      { label: Acceptance Criteria, placeholder: "- Given/When/Then..." }
+    validations: { required: true }
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        ["area:engine", "area:ui", "area:providers", "area:proto", "area:infra"]
+  - type: dropdown
+    id: size
+    attributes:
+      label: Size
+      options: ["size:S", "size:M", "size:L"]

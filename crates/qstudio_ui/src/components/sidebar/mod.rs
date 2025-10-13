@@ -25,6 +25,7 @@ pub struct SideBar {
 
     pub filetree: FileTreeUi,
     pub active_engines: ActiveEngines,
+    pub settings: settings::Settings,
     // Add other sidebar components as needed
     only_client: Client,
 }
@@ -38,6 +39,7 @@ impl SideBar {
             show_search: false,
             filetree: FileTreeUi::new(Arc::clone(&filetree_arc), only_client.clone()),
             active_engines: ActiveEngines::new(Arc::clone(&filetree_arc), only_client.clone()),
+            settings: settings::Settings::new(),
             only_client,
         }
     }
@@ -177,7 +179,7 @@ impl SideBar {
                                         }
                                         self.filetree.ui(ui);
                                     } else if self.show_settings {
-                                        settings::settings_ui(ui);
+                                        self.settings.ui(ui);
                                     } else if self.show_active_engines {
                                         self.active_engines.ui(ui);
                                     }

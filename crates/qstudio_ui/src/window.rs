@@ -2,6 +2,7 @@ use crate::components;
 use crossbeam_channel::Sender;
 use egui::{Stroke, Ui, ViewportCommand};
 use events::events::engine::EngineEvent;
+use puffin_egui::puffin;
 use qstudio_tcp::{Client, ClientList};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -26,7 +27,7 @@ pub struct QStudioApp {
     tabviewer: components::dock::MyTabViewer,
     center: components::dock::PaneDock,
 
-    client_list: Arc<Mutex<ClientList>>,
+    client_list: Arc<Mutex<ClientList<Client>>>,
     main_window_tx: Sender<crate::WindowRequest>,
 }
 
@@ -37,15 +38,23 @@ impl QStudioApp {
         tx_address: String,
         main_window_tx: Sender<crate::WindowRequest>,
     ) -> Self {
-        let client_list = Arc::new(Mutex::new(ClientList::new()));
+        let client_list: Arc<Mutex<ClientList<Client>>> = Arc::new(Mutex::new(ClientList::new()));
 
         let aluminum: Arc<Aluminum<(Client, Event)>> = Arc::new(Aluminum::new());
-        client_list
+        client_list.lock().unwrap().add_client(
+            "Main Window".into(),
+            Client {
+                addr: tx_address.clone(),
+            },
+        );
+
+        let only_client = client_list
             .lock()
             .unwrap()
-            .add_client("Test".into(), tx_address.clone());
+            .get_client("Main Window")
+            .unwrap();
 
-        let only_client = client_list.lock().unwrap().get_client("Test").unwrap();
+        log::info!("Starting QStudioApp with ID: {}", id);
         QStudioApp::listen(
             rx_address,
             tx_address,
@@ -78,7 +87,7 @@ impl QStudioApp {
         rx_address: String,
         tx_address: String,
         aluminum: Arc<Aluminum<(Client, Event)>>,
-        client_list: Arc<Mutex<ClientList>>,
+        client_list: Arc<Mutex<ClientList<Client>>>,
         main_window_tx: Sender<crate::WindowRequest>,
         id: String,
     ) {
@@ -94,7 +103,6 @@ impl QStudioApp {
             let rx_address = rx_address_clone.clone();
             log::info!("Starting Frontend Server...");
             let client_list = Arc::clone(&client_list_clone);
-            let only_client = client_list.lock().unwrap().get_client("Test").unwrap();
             let mut txs: HashMap<events::EventType, Sender<(Client, Event)>> = HashMap::new();
             txs.insert(
                 events::EventType::UiEvent,
@@ -121,11 +129,12 @@ impl QStudioApp {
             // Add other event types and their corresponding senders as needed.
             let rx_address_clone = rx_address.clone();
 
+            log::info!("Listening on {}", rx_address_clone);
             let server_to_client =
                 qstudio_tcp::Server::new(rx_address_clone.clone(), tx_address_clone.clone());
             qstudio_tcp::Server::new(rx_address_clone.clone(), tx_address_clone.clone());
             server_to_client
-                .listen::<EventType, Event, EventResponse>(txs, Arc::clone(&client_list));
+                .listen::<EventType, Event, EventResponse, Client>(txs, Arc::clone(&client_list));
         });
 
         thread::spawn({
@@ -193,12 +202,14 @@ impl QStudioApp {
                                 UiEvent::CloseWindow => {
                                     // Example action: Close the current window
                                     log::info!("Handling CloseWindow event");
-                                    client.send::<String>(Copper::RemoveClient {
-                                        client_id: id_clone.clone(),
-                                        callback_address: rx_address.clone(),
-                                    }).unwrap_or_else(|e| {
-                                        log::error!("Error sending RemoveClient: {}", e);
-                                    });
+                                    client
+                                        .send::<String>(Copper::RemoveClient {
+                                            client_id: id_clone.clone(),
+                                            callback_address: rx_address.clone(),
+                                        })
+                                        .unwrap_or_else(|e| {
+                                            log::error!("Error sending RemoveClient: {}", e);
+                                        });
                                     // Implement the logic to close the current window here
                                     arc_main_window_tx
                                         .send(crate::WindowRequest::CloseWindow {

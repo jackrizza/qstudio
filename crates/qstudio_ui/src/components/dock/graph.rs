@@ -87,6 +87,7 @@ impl DrawGraph {
             .allow_double_click_reset(true)
             .x_axis_label("Time")
             .y_axis_label("Price")
+            .show_background(false)
             .default_y_bounds(self.graph.min() - 25.0, self.graph.max() + 25.0)
             .show_axes([true, true]) // Show/hide axis lines and labels
             .legend(

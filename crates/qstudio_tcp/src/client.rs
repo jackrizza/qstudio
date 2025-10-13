@@ -8,6 +8,12 @@ pub struct Client {
     pub addr: String,
 }
 
+impl From<String> for Client {
+    fn from(addr: String) -> Self {
+        Client { addr }
+    }
+}
+
 impl Client {
     pub fn new(addr: String) -> Self {
         log::info!("Creating client for {}", addr);
@@ -48,7 +54,7 @@ fn retry_connect(addr: &str, attempts: usize, backoff: Duration) -> Option<TcpSt
             Ok(s) => return Some(s),
             Err(e) => {
                 if n == attempts {
-                    eprintln!("[SDK] Final connect error: {e}");
+                    log::error!("Final connect error: {}", e);
                     return None;
                 }
                 thread::sleep(backoff);
