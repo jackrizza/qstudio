@@ -146,7 +146,7 @@ impl SideBar {
                 });
 
                 flex.add_ui(FlexItem::new().grow(1.0), |ui| {
-                    egui::Frame::none()
+                    egui::Frame::NONE
                         .inner_margin(0.0)
                         .outer_margin(0.0)
                         .fill(secondary_background)
@@ -154,7 +154,7 @@ impl SideBar {
                             ui.set_min_width(self.width() - 64.0);
                             ui.set_max_width(self.width() - 64.0);
                             ui.set_min_height(ui.available_height());
-                            egui::Frame::none()
+                            egui::Frame::NONE
                                 .inner_margin(
                                     if self.show_folder_tree
                                         || self.show_settings

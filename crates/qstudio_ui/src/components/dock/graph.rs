@@ -1,9 +1,9 @@
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::Receiver;
 use egui::{Color32, Stroke, TextStyle};
 use egui_plot::{
     Bar, BarChart, BoxElem, BoxPlot, Corner, Legend, Line, Plot, PlotPoints, PlotUi, Polygon,
 };
-use engine::controllers::Output;
+use engine::output::Output;
 use engine::parser::{DrawType, Graph, Trades};
 
 #[derive(Debug, Clone)]

@@ -1,9 +1,7 @@
-pub mod utils;
 pub mod server;
-
+pub mod utils;
 
 use clap::Parser;
-
 
 /// Simple program to greet a person
 #[derive(Parser, Debug, Clone)]

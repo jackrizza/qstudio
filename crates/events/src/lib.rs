@@ -1,7 +1,5 @@
-use std::fs::File;
-
 use busbar::{MakeT, Response, Unravel};
-use engine::controllers::Output;
+use engine::output::Output;
 use serde::{Deserialize, Serialize};
 
 pub mod events;
@@ -10,7 +8,6 @@ use events::dock::DockEvent;
 use events::engine::EngineEvent;
 use events::files::FileEvent;
 use events::notifications::NotificationEvent;
-
 
 use crate::events::notifications::NotificationKind;
 
@@ -160,11 +157,12 @@ impl Unravel<EventType, Event, EventResponse> for Event {
                 EventResponse::Success(format!("Client {}: {}", client_id, message))
             }
             Event::EngineEvent(engine_event) => engine_event.execute(engine_tx, client),
-            Event::NotificationEvent(notification_event) => notification_event.execute(engine_tx, client),
+            Event::NotificationEvent(notification_event) => {
+                notification_event.execute(engine_tx, client)
+            }
             Event::FileEvent(file_event) => EventResponse::FileEvent(file_event.clone()),
             Event::DockEvent(dock_event) => EventResponse::DockEvent(dock_event.clone()),
             Event::UiEvent(ui_event) => EventResponse::UiEvent(ui_event.clone()),
-            _ => EventResponse::Info("Event processed".into()),
         }
     }
 }
@@ -217,14 +215,12 @@ impl MakeT<Event> for EventResponse {
                 kind: NotificationKind::Info,
                 message: msg.clone(),
             }),
-            EventResponse::Notification {
-                parent_event_type,
-                kind,
-                message,
-            } => Event::NotificationEvent(NotificationEvent {
-                kind: NotificationKind::from_str(kind).unwrap_or(NotificationKind::Info),
-                message: message.clone(),
-            }),
+            EventResponse::Notification { kind, message, .. } => {
+                Event::NotificationEvent(NotificationEvent {
+                    kind: NotificationKind::from_str(kind).unwrap_or(NotificationKind::Info),
+                    message: message.clone(),
+                })
+            }
             EventResponse::FileEvent(file_event) => Event::FileEvent(file_event.clone()),
             EventResponse::DockEvent(dock_event) => Event::DockEvent(dock_event.clone()),
             EventResponse::EngineEvent(engine_event) => Event::EngineEvent(engine_event.clone()),

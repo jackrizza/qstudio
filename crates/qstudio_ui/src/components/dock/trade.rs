@@ -1,4 +1,4 @@
-use engine::controllers::Output;
+use engine::output::Output;
 
 use crossbeam_channel::Receiver;
 use egui::Ui;
@@ -6,7 +6,6 @@ use egui::{FontId, RichText};
 use egui_extras::{Column, TableBuilder};
 use egui_plot::{Bar, BarChart, Plot};
 use engine::{parser::Trades, utils::trade::TradeSummary};
-use polars::frame::DataFrame;
 
 #[derive(Debug, Clone)]
 pub struct TradeSummaryUi {
@@ -67,7 +66,7 @@ pub fn trade_summary_ui(ui: &mut Ui, summary: TradeSummary, trades: Trades) {
     // average loss per $1000
 
     let available_width = ui.available_width();
-    let mut available_height = ui.max_rect().height();
+    let available_height = ui.max_rect().height();
 
     let bars = summary
         .bar_chart_data

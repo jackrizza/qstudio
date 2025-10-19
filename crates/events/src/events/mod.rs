@@ -1,4 +1,4 @@
-pub mod engine;
-pub mod notifications;
-pub mod files;
 pub mod dock;
+pub mod engine;
+pub mod files;
+pub mod notifications;

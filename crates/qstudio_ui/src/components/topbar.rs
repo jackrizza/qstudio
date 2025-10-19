@@ -1,6 +1,5 @@
 use busbar::Aluminum;
-use egui::{self, Align, Layout, Sense, TextStyle, ViewportCommand};
-use egui_extras::{Size, StripBuilder};
+
 use events::{Event, UiEvent};
 use qstudio_tcp::Client;
 use std::sync::Arc;
@@ -44,7 +43,7 @@ impl TopBar {
             .exact_height(48.0)
             .show_separator_line(false)
             .frame(
-                egui::Frame::none()
+                egui::Frame::NONE
                     .inner_margin(8.0)
                     .outer_margin(0.0)
                     .fill(theme::get_mode_theme(ctx).crust),
@@ -63,7 +62,7 @@ impl TopBar {
                                 egui::Button::new("")
                                     .fill(egui::Color32::from_rgb(rgb.0, rgb.1, rgb.2))
                                     .stroke(egui::Stroke::new(1.0, egui::Color32::BLACK))
-                                    .rounding(9.0)
+                                    .corner_radius(9.0)
                             };
                             let bs = egui::vec2(18.0, 18.0);
                             ui.horizontal(|ui| {
@@ -121,7 +120,7 @@ impl TopBar {
                                             .show(ui.ctx(), |ui| {
                                                 // Popup frame & exact width matching the text field:
                                                 egui::Frame::popup(ui.style())
-                                                    .rounding(0.0)
+                                                    .corner_radius(0.0)
                                                     .inner_margin(6.0)
                                                     .fill(theme::get_mode_theme(ui.ctx()).crust)
                                                     .show(ui, |ui| {
@@ -133,7 +132,8 @@ impl TopBar {
                                                                 // Render your items:
                                                                 for item in items {
                                                                     let clicked = ui
-                                                                        .add(egui::SelectableLabel::new(false, item.clone()))
+                                                                        // .add(egui::SelectableLabel::new(false, item.clone()))
+                                                                        .add(egui::Button::selectable(false, item.clone()))
                                                                         .clicked();
                                                                     if clicked {
                                                                         // Apply selection:

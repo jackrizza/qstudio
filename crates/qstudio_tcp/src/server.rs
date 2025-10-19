@@ -3,11 +3,8 @@ use crossbeam_channel::Sender;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::net::{TcpListener, TcpStream};
-use std::thread;
 
-use actix_rt;
-
-use crate::{client, Client, ClientList};
+use crate::ClientList;
 use std::sync::{Arc, Mutex};
 
 pub struct Server {
@@ -81,12 +78,15 @@ impl Server {
         for line in reader.lines() {
             match line {
                 Ok(message) => {
-                    let copper: Copper<T> = Copper::from_json(&message).unwrap();
+                    let copper: Copper<T> = match Copper::from_json(&message) {
+                        Ok(copper) => copper,
+                        Err(err) => {
+                            log::error!("Failed to parse message: {}", err);
+                            continue;
+                        }
+                    };
                     match &copper {
-                        Copper::RemoveClient {
-                            client_id,
-                            callback_address,
-                        } => {
+                        Copper::RemoveClient { client_id, .. } => {
                             log::info!("Removing client with id: {}", client_id);
                             client_list.lock().unwrap().remove_client(client_id);
                             continue;
@@ -131,10 +131,7 @@ impl Server {
     {
         match message {
             Copper::ToClient { .. } => return (C::from("".into()), B::default()),
-            Copper::RemoveClient {
-                client_id,
-                callback_address,
-            } => {
+            Copper::RemoveClient { client_id, .. } => {
                 log::info!("Removing client with id: {}", client_id);
                 client_list.lock().unwrap().remove_client(&client_id);
                 return (C::from("".into()), B::default());

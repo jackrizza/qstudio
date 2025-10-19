@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -51,13 +50,11 @@ pub enum FileEvent {
 
 pub struct FileSystem {
     pub root: PathBuf,
-    fs: Fs,
 }
 
 impl FileSystem {
     pub fn new(root: PathBuf) -> Self {
-        let fs = Self::scan_directory(&root);
-        FileSystem { root, fs }
+        FileSystem { root }
     }
 
     fn scan_directory(path: &Path) -> Fs {

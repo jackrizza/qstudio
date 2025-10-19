@@ -1,4 +1,4 @@
-use engine::controllers::Output;
+use engine::output::Output;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

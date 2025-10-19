@@ -1,5 +1,5 @@
 use busbar::Aluminum;
-use engine::controllers::Output;
+use engine::output::Output;
 use events::Event;
 use std::sync::Arc;
 
@@ -7,13 +7,14 @@ use qstudio_tcp::Client;
 
 pub struct RightBar {
     pub visible: bool,
-    pub init: bool,
+    pub _init: bool,
     pub aluminum: Arc<Aluminum<(Client, Event)>>,
     pub widgets: Vec<Widget>,
     pub width: f32,
-    only_client: Client,
+    _only_client: Client,
 }
 
+#[allow(dead_code)]
 pub enum Widget {
     Placeholder,
     Widget { name: String, data: Output },
@@ -67,7 +68,7 @@ impl RightBar {
     pub fn new(aluminum: Arc<Aluminum<(Client, Event)>>, only_client: Client) -> Self {
         RightBar {
             visible: false,
-            init: false,
+            _init: false,
             aluminum,
             widgets: vec![
                 Widget::Placeholder,
@@ -77,7 +78,7 @@ impl RightBar {
                 Widget::Placeholder,
             ],
             width: 0.0,
-            only_client,
+            _only_client: only_client,
         }
     }
 
@@ -110,7 +111,7 @@ impl RightBar {
             .min_width(300.0)
             .max_width(600.0)
             .frame(
-                egui::Frame::none()
+                egui::Frame::NONE
                     .inner_margin(16.0)
                     .outer_margin(0.0)
                     .fill(theme::get_mode_theme(ctx).crust),

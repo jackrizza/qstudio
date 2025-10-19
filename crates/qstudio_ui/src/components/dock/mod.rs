@@ -4,7 +4,7 @@ use egui_dock::{
     DockArea, DockState, NodeIndex, OverlayType, SeparatorStyle, Style, SurfaceIndex, TabAddAlign,
     TabViewer,
 };
-use engine::controllers::Output;
+use engine::output::Output;
 use std::sync::Arc;
 
 use busbar::Aluminum;
@@ -30,6 +30,7 @@ mod trade;
 use crate::throttle_repaint;
 
 // Use PaneType as your Tab data
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum PaneType {
     MarkDown {
@@ -104,8 +105,8 @@ impl TabViewer for MyTabViewer {
     // ← Add your custom items here
     fn context_menu(
         &mut self,
-        ui: &mut Ui,
-        tab: &mut Self::Tab,
+        _ui: &mut Ui,
+        _tab: &mut Self::Tab,
         _surface: SurfaceIndex,
         _node: NodeIndex,
     ) {
@@ -143,12 +144,10 @@ impl TabViewer for MyTabViewer {
                             log::error!("Failed to send SaveFile event: {}", e);
                         });
                 }
-                editor::code_editor(ui, file_name.to_string(), buffer);
+                editor::code_editor(ui, buffer);
             }
             PaneType::GraphView {
-                title,
-                data,
-                draw_graph,
+                data, draw_graph, ..
             } => {
                 if draw_graph.is_none() {
                     *draw_graph = Some(graph::DrawGraphUi::new(data.clone()));
@@ -156,9 +155,9 @@ impl TabViewer for MyTabViewer {
                 draw_graph.as_mut().unwrap().ui(ui);
             }
             PaneType::TradeView {
-                title,
                 summary,
                 trade_summary,
+                ..
             } => {
                 if trade_summary.is_none() {
                     *trade_summary = Some(trade::TradeSummaryUi::new(summary.clone()));
@@ -196,7 +195,7 @@ impl PaneDock {
     fn pump_snapshots(&mut self, ui: &mut Ui) {
         // Drain all pending messages and keep only the latest Fs snapshot
         let mut updated = false;
-        while let Ok((client, ev)) = self.dock_aluminum.dock_rx.try_recv() {
+        while let Ok((_client, ev)) = self.dock_aluminum.dock_rx.try_recv() {
             if let Event::DockEvent(dock_event) = ev {
                 match dock_event {
                     events::events::dock::DockEvent::ShowFile { name, buffer } => {

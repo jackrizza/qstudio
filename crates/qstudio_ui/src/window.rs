@@ -1,8 +1,6 @@
 use crate::components;
 use crossbeam_channel::Sender;
-use egui::{Stroke, Ui, ViewportCommand};
-use events::events::engine::EngineEvent;
-use puffin_egui::puffin;
+use egui::ViewportCommand;
 use qstudio_tcp::{Client, ClientList};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -12,23 +10,23 @@ use busbar::{Aluminum, Copper};
 use egui_notify::Toasts;
 use events::events::notifications::{NotificationEvent, NotificationKind};
 use events::{Event, EventResponse, EventType, UiEvent};
-use uuid::Uuid;
+
 pub struct QStudioApp {
     aluminum: Arc<Aluminum<(Client, Event)>>,
 
     notification: Toasts,
 
-    id: String,
+    _id: String,
 
     topbar: components::topbar::TopBar,
     leftbar: components::leftbar::LeftBar,
-    bottombar: components::bottombar::BottomBar,
+    _bottombar: components::bottombar::BottomBar,
     rightbar: components::rightbar::RightBar,
     tabviewer: components::dock::MyTabViewer,
     center: components::dock::PaneDock,
 
-    client_list: Arc<Mutex<ClientList<Client>>>,
-    main_window_tx: Sender<crate::WindowRequest>,
+    _client_list: Arc<Mutex<ClientList<Client>>>,
+    _main_window_tx: Sender<crate::WindowRequest>,
 }
 
 impl QStudioApp {
@@ -66,21 +64,21 @@ impl QStudioApp {
         Self {
             aluminum: Arc::clone(&aluminum),
             notification: Toasts::default(),
-            id,
+            _id: id,
             topbar: components::topbar::TopBar::new(Arc::clone(&aluminum), only_client.clone()),
             leftbar: components::leftbar::LeftBar::new(Arc::clone(&aluminum), only_client.clone()),
             rightbar: components::rightbar::RightBar::new(
                 Arc::clone(&aluminum),
                 only_client.clone(),
             ),
-            bottombar: components::bottombar::BottomBar::new(),
+            _bottombar: components::bottombar::BottomBar::new(),
             tabviewer: components::dock::MyTabViewer::new(
                 Arc::clone(&aluminum),
                 only_client.clone(),
             ),
             center: components::dock::PaneDock::new(Arc::clone(&aluminum), only_client.clone()),
-            client_list,
-            main_window_tx,
+            _client_list: client_list,
+            _main_window_tx: main_window_tx,
         }
     }
     fn listen(
@@ -144,7 +142,6 @@ impl QStudioApp {
                 backend_aluminum.backend_listen();
             }
         });
-        let tx_address = tx_address.clone();
         let rx_address_clone = rx_address.clone();
         let aluminum_clone = aluminum.clone();
         let arc_main_window_tx = Arc::new(main_window_tx);
@@ -318,7 +315,7 @@ impl QStudioApp {
         }
 
         self.topbar.ui(ctx);
-        if let Ok((client, not)) = self.aluminum.notification_rx.try_recv() {
+        if let Ok((_client, not)) = self.aluminum.notification_rx.try_recv() {
             log::info!("UI received notification event: {}", not);
             let notification = match not {
                 Event::NotificationEvent(notification) => notification,
@@ -342,7 +339,7 @@ impl QStudioApp {
         self.rightbar.ui(ctx);
         egui::CentralPanel::default()
             .frame(
-                egui::Frame::none()
+                egui::Frame::NONE
                     .inner_margin(0.0)
                     .outer_margin(0.0)
                     .fill(theme::get_mode_theme(ctx).base), // .stroke(Stroke::new(0.5, egui::Color32::BLACK)),

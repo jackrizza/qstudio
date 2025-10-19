@@ -1,8 +1,7 @@
 use busbar::Aluminum;
 use egui::RichText;
 use qstudio_tcp::Client;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use events::events::engine::EngineEvent;
 use events::Event;

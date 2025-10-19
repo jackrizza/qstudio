@@ -1,8 +1,8 @@
 // parser.rs
 // -----------------------------------------------------------------------------
-// Recursive‑descent parser for Quant Query Language (QQL)
+// Recursive-descent parser for Quant Query Language (QQL)
 // -----------------------------------------------------------------------------
-// This version is aligned with the *struct*‑style `Token` defined in lexer.rs:
+// This version aligns with a struct-style `Token` defined in lexer.rs:
 //
 // pub struct Token {
 //     pub kind: TokenKind,
@@ -11,17 +11,18 @@
 // }
 //
 // enum TokenKind {
-//     Keyword(Keyword),     // e.g. LIVE, HISTORICAL, PULL …
-//     Identifier(String),   // field names, ticker symbols (already upper‑cased)
-//     Literal(String),      // dates (YYYYMMDD) and intervals (2m, 10d)
+//     Keyword(Keyword),     // e.g. FRAME, PROVIDER, PULL, CALC …
+//     Identifier(String),   // field names, ticker symbols (typically upper-cased)
+//     Literal(String),      // dates (YYYYMMDD) and intervals (2m, 10d), numeric literals
 //     Comma,
 //     Newline,
 //     EOF,
+//     // (optionally) Comment(String), Equals, etc., depending on your lexer
 // }
 // -----------------------------------------------------------------------------
-// The parser builds a minimal AST and returns it via `parse()`.
-// Focus is on showing how to consume tokens correctly; you can extend the AST
-// or enforcement logic as needed.
+// This parser builds a minimal AST and returns it via `parse()`.
+// It now supports top-level PROVIDER blocks and requires each FRAME to
+// reference a provider instance by name. The old ModelSection is removed.
 // -----------------------------------------------------------------------------
 
 use crate::lexer::Lexer;
@@ -35,35 +36,73 @@ use std::iter::Peekable;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Frame {
-    pub model: ModelSection,
+    pub provider: String, // reference to a declared ProviderInstance by name
     pub actions: ActionSection,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Query {
+    pub providers: HashMap<String, ProviderInstance>,
     pub frame: HashMap<String, Frame>,
     pub graph: Option<GraphSection>,
     pub trade: Option<TradeSection>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ModelType {
-    Live,
-    Historical,
-    Fundamental,
-}
+impl Query {
+    /// Build outbound provider queries from this AST.
+    ///
+    /// Returns Vec<(name, query)> where `name` is the provider instance name.
+    /// Skips providers that are missing backend/ticker or time window.
+    pub fn build_provider_queries(&self) -> Result<Vec<(String, String)>, ParseError> {
+        let mut out: Vec<(String, String)> = Vec::new();
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ModelSection {
-    pub model_type: ModelType,
-    pub ticker: String,
-    pub time_spec: TimeSpec,
+        for prov in self.providers.values() {
+            let backend = match &prov.backend {
+                Some(b) if !b.is_empty() => b,
+                _ => continue, // incomplete; skip
+            };
+            let ticker = match &prov.ticker {
+                Some(t) if !t.is_empty() => t,
+                _ => continue, // incomplete; skip
+            };
+
+            match &prov.time_spec {
+                Some(TimeSpec::DateRange { from, to }) => {
+                    let from_iso = yyyymmdd_to_iso8601_z(from).map_err(|msg| {
+                        ParseError::new(format!("provider \"{}\": {}", prov.name, msg), 0, 0)
+                    })?;
+                    let to_iso = yyyymmdd_to_iso8601_z(to).map_err(|msg| {
+                        ParseError::new(format!("provider \"{}\": {}", prov.name, msg), 0, 0)
+                    })?;
+
+                    let query = format!(
+                        "provider {} search ticker={} date={}..{}",
+                        backend, ticker, from_iso, to_iso
+                    );
+                    out.push((prov.name.clone(), query));
+                }
+                // Add LIVE support here if desired.
+                _ => continue,
+            }
+        }
+
+        Ok(out)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TimeSpec {
     DateRange { from: String, to: String },
     LiveSpec { interval: String, duration: String },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProviderInstance {
+    pub name: String,                  // instance name, e.g. "aapl_data"
+    pub backend: Option<String>,       // e.g. "yahoo_finance"
+    pub ticker: Option<String>,        // e.g. "AAPL"
+    pub time_spec: Option<TimeSpec>,   // FROM/TO or LIVE TICK/FOR
+    pub params: Vec<(String, String)>, // PARAM key = value
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -76,19 +115,18 @@ pub enum ShowType {
 pub struct ActionSection {
     pub fields: Vec<String>,
     pub calc: Option<Vec<Calc>>,
-    // pub show: ShowType, // always true if present
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Calc {
     pub inputs: Vec<String>,
-    pub operation: Keyword, // Difference, Sum, Multiply, Divide
+    pub operation: Keyword, // Difference, Sum, Multiply, Divide, Sma, etc.
     pub alias: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphSection {
-    pub xaxis: String, // optional x-axis label
+    pub xaxis: String, // x-axis label / frame
     pub commands: Vec<DrawCommand>,
 }
 
@@ -158,7 +196,7 @@ impl Graph {
             DrawType::Line(_, values) => values.iter().cloned().fold(max, f64::max),
             DrawType::Bar(_, values) => values.iter().cloned().fold(max, f64::max),
             DrawType::Candlestick(_, candles) => {
-                candles.iter().map(|&(o, h, l, c)| h).fold(max, f64::max)
+                candles.iter().map(|&(_o, h, _l, _c)| h).fold(max, f64::max)
             }
             _ => max, // Rectangles don't have a max value
         })
@@ -169,7 +207,7 @@ impl Graph {
             DrawType::Line(_, values) => values.iter().cloned().fold(min, f64::min),
             DrawType::Bar(_, values) => values.iter().cloned().fold(min, f64::min),
             DrawType::Candlestick(_, candles) => {
-                candles.iter().map(|&(o, h, l, c)| l).fold(min, f64::min)
+                candles.iter().map(|&(_o, _h, l, _c)| l).fold(min, f64::min)
             }
             _ => min, // Rectangles don't have a min value
         })
@@ -260,6 +298,7 @@ impl<'a> Parser<'a> {
 
     // Entry point
     pub fn parse(&mut self) -> Result<Query, ParseError> {
+        let providers = self.parse_provider_sections()?;
         let frame = self.parse_frame_section()?;
 
         let graph = match self.parse_graph_section() {
@@ -274,6 +313,7 @@ impl<'a> Parser<'a> {
             }
         };
         Ok(Query {
+            providers,
             frame,
             trade,
             graph,
@@ -302,15 +342,19 @@ impl<'a> Parser<'a> {
     }
 
     fn consume_newlines(&mut self) -> Result<(), ParseError> {
+        // Eat *all* non-semantic trivia: newlines and comments
         loop {
             match self.peek_token() {
                 Some(Ok(tok)) => {
-                    if matches!(tok.kind, TokenKind::Newline) {
-                        self.next_token()?; // consume
-                    } else if matches!(tok.kind, TokenKind::Comment(_)) {
-                        self.next_token()?; // consume comment
-                    } else {
-                        break; // stop on non-newline/non-comment
+                    match &tok.kind {
+                        TokenKind::Newline => {
+                            self.next_token()?;
+                        } // consume newline
+                        // If your lexer has Comment(String)
+                        TokenKind::Comment(_) => {
+                            self.next_token()?;
+                        } // consume comment
+                        _ => break,
                     }
                 }
                 _ => break,
@@ -351,15 +395,144 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // fn expect_eof(&mut self) -> Result<(), ParseError> {
-    //     match self.next_token() {
-    //         Err(ParseError { line: 0, .. }) => Ok(()), // reached iterator end
-    //         Ok(tok) => Err(ParseError::expected(&tok, "EOF")),
-    //         Err(e) => Err(e),
-    //     }
-    // }
+    /* --------------------------- PROVIDERS (NEW) ------------------------ */
 
-    /* ---------------------- Model‑section parsing ---------------------- */
+    fn parse_provider_sections(&mut self) -> Result<HashMap<String, ProviderInstance>, ParseError> {
+        self.consume_newlines()?;
+
+        let mut map = HashMap::new();
+
+        loop {
+            match self.peek_token() {
+                Some(Ok(tok)) if tok.kind == TokenKind::Keyword(Keyword::Provider) => {
+                    let inst = self.parse_provider_block()?;
+                    if map.contains_key(&inst.name) {
+                        return Err(ParseError::new(
+                            format!("provider \"{}\" is already defined", inst.name),
+                            self.last_pos.0,
+                            self.last_pos.1,
+                        ));
+                    }
+                    map.insert(inst.name.clone(), inst);
+                }
+                Some(Ok(tok)) if tok.kind == TokenKind::Newline => {
+                    self.next_token()?; // skip stray newline
+                }
+                _ => break,
+            }
+        }
+
+        Ok(map)
+    }
+
+    fn parse_provider_block(&mut self) -> Result<ProviderInstance, ParseError> {
+        // PROVIDER <instance_name>
+        self.expect_keyword(Keyword::Provider)?;
+        let name = self.expect_identifier()?;
+        self.consume_newlines()?;
+
+        let mut backend: Option<String> = None;
+        let mut ticker: Option<String> = None;
+        let mut time_spec: Option<TimeSpec> = None;
+        let mut params: Vec<(String, String)> = Vec::new();
+
+        // Accept lines until we hit something that's not part of a provider body
+        loop {
+            match self.peek_token() {
+                Some(Ok(tok)) => match &tok.kind {
+                    // inner backend: "PROVIDER <backend>" or "USING <backend>"
+                    TokenKind::Keyword(Keyword::Provider) => {
+                        // Disambiguate: if we've already set a backend, this is a NEW provider block.
+                        if backend.is_some() {
+                            break; // let outer loop handle the next PROVIDER <instance_name>
+                        }
+                        // Otherwise, treat as "backend" line: PROVIDER <backend_name>
+                        self.next_token()?; // consume PROVIDER
+                        backend = Some(self.expect_identifier()?);
+                        self.consume_newlines()?;
+                    }
+                    TokenKind::Keyword(Keyword::Using) => {
+                        self.next_token()?;
+                        backend = Some(self.expect_identifier()?);
+                        self.consume_newlines()?;
+                    }
+
+                    // TICKER <IDENT>
+                    TokenKind::Keyword(Keyword::Ticker) => {
+                        self.next_token()?;
+                        ticker = Some(self.expect_identifier()?);
+                        self.consume_newlines()?;
+                    }
+
+                    // FROM <YYYYMMDD> TO <YYYYMMDD>
+                    TokenKind::Keyword(Keyword::From) => {
+                        self.next_token()?;
+                        let from = self.expect_literal()?;
+                        self.expect_keyword(Keyword::To)?;
+                        let to = self.expect_literal()?;
+                        time_spec = Some(TimeSpec::DateRange { from, to });
+                        self.consume_newlines()?;
+                    }
+
+                    // LIVE TICK <interval> FOR <duration>
+                    TokenKind::Keyword(Keyword::Live) => {
+                        self.next_token()?;
+                        self.expect_keyword(Keyword::Tick)?;
+                        let interval = self.expect_literal()?;
+                        self.expect_keyword(Keyword::For)?;
+                        let duration = self.expect_literal()?;
+                        time_spec = Some(TimeSpec::LiveSpec { interval, duration });
+                        self.consume_newlines()?;
+                    }
+
+                    // PARAM key = value
+                    TokenKind::Keyword(Keyword::Param) => {
+                        self.next_token()?;
+                        let key = self.expect_identifier()?;
+
+                        // accept '=' as Identifier("=") or Literal("="); replace with TokenKind::Equals if you have it
+                        let eq_tok = self.next_token()?;
+                        let is_eq = match &eq_tok.kind {
+                            TokenKind::Identifier(s) if s == "=" => true,
+                            TokenKind::Literal(s) if s == "=" => true,
+                            // If you have TokenKind::Equals in your lexer, add:
+                            // TokenKind::Equals => true,
+                            _ => false,
+                        };
+                        if !is_eq {
+                            return Err(ParseError::expected(&eq_tok, "'='"));
+                        }
+
+                        let val_tok = self.next_token()?;
+                        let val = match val_tok.kind {
+                            TokenKind::Identifier(s) | TokenKind::Literal(s) => s,
+                            _ => return Err(ParseError::expected(&val_tok, "value")),
+                        };
+                        params.push((key, val));
+                        self.consume_newlines()?;
+                    }
+
+                    // skip blank lines
+                    TokenKind::Newline => {
+                        self.next_token()?;
+                    }
+
+                    _ => break, // end of provider block
+                },
+                _ => break,
+            }
+        }
+
+        Ok(ProviderInstance {
+            name,
+            backend,
+            ticker,
+            time_spec,
+            params,
+        })
+    }
+
+    /* ----------------------------- FRAMES ------------------------------- */
 
     fn parse_frame_section(&mut self) -> Result<HashMap<String, Frame>, ParseError> {
         self.consume_newlines()?;
@@ -372,10 +545,23 @@ impl<'a> Parser<'a> {
                 let frame_name = self.expect_identifier()?;
                 self.consume_newlines()?;
 
-                let model = self.parse_model_section()?;
+                // Require: PROVIDER <instance_name>
+                self.expect_keyword(Keyword::Provider)?;
+                let provider_name = self.expect_identifier()?;
+                self.consume_newlines()?;
+
+                // Actions (PULL + optional CALC*)
                 let actions = self.parse_action_section()?;
 
-                frames.insert(frame_name, Frame { model, actions });
+                frames.insert(
+                    frame_name,
+                    Frame {
+                        provider: provider_name,
+                        actions,
+                    },
+                );
+            } else if tok.kind == TokenKind::Newline {
+                self.next_token()?; // skip stray newline
             } else {
                 break; // no more FRAME sections
             }
@@ -384,68 +570,7 @@ impl<'a> Parser<'a> {
         Ok(frames)
     }
 
-    fn parse_model_section(&mut self) -> Result<ModelSection, ParseError> {
-        self.consume_newlines()?;
-
-        // model_type
-        let (model_type, _model_kw) = match self.next_token()? {
-            tok @ Token {
-                kind: TokenKind::Keyword(Keyword::Live),
-                ..
-            } => (ModelType::Live, tok),
-            tok @ Token {
-                kind: TokenKind::Keyword(Keyword::Historical),
-                ..
-            } => (ModelType::Historical, tok),
-            tok @ Token {
-                kind: TokenKind::Keyword(Keyword::Fundamental),
-                ..
-            } => (ModelType::Fundamental, tok),
-            tok => {
-                return Err(ParseError::expected(
-                    &tok,
-                    "model type (LIVE | HISTORICAL | FUNDAMENTAL)",
-                ))
-            }
-        };
-
-        self.consume_newlines()?;
-        // TICKER symbol
-        self.expect_keyword(Keyword::Ticker)?;
-        let ticker = self.expect_identifier()?;
-        self.consume_newlines()?;
-
-        // time spec
-        let time_spec = match model_type {
-            ModelType::Live => self.parse_live_spec()?,
-            _ => self.parse_date_range()?,
-        };
-        self.consume_newlines()?;
-
-        Ok(ModelSection {
-            model_type,
-            ticker,
-            time_spec,
-        })
-    }
-
-    fn parse_live_spec(&mut self) -> Result<TimeSpec, ParseError> {
-        self.expect_keyword(Keyword::Tick)?;
-        let interval = self.expect_literal()?; // e.g., "2m"
-        self.expect_keyword(Keyword::For)?;
-        let duration = self.expect_literal()?; // e.g., "10d"
-        Ok(TimeSpec::LiveSpec { interval, duration })
-    }
-
-    fn parse_date_range(&mut self) -> Result<TimeSpec, ParseError> {
-        self.expect_keyword(Keyword::From)?;
-        let from = self.expect_literal()?; // date literal
-        self.expect_keyword(Keyword::To)?;
-        let to = self.expect_literal()?;
-        Ok(TimeSpec::DateRange { from, to })
-    }
-
-    /* ---------------------- Action‑section parsing --------------------- */
+    /* ---------------------- Action-section parsing --------------------- */
 
     fn parse_action_section(&mut self) -> Result<ActionSection, ParseError> {
         // PULL
@@ -466,22 +591,6 @@ impl<'a> Parser<'a> {
 
         let calc = if calcs.is_empty() { None } else { Some(calcs) };
         self.consume_newlines()?;
-
-        // // SHOW (required)
-        // let show = match self.next_token()? {
-        //     Token {
-        //         kind: TokenKind::Keyword(Keyword::ShowTable),
-        //         ..
-        //     } => ShowType::Table,
-        //     Token {
-        //         kind: TokenKind::Keyword(Keyword::Graph),
-        //         ..
-        //     } => {
-        //         let graph = self.parse_graph_section()?; // graph section is optional
-        //         ShowType::Graph(graph)
-        //     }
-        //     tok => return Err(ParseError::expected(&tok, "SHOWTABLE or GRAPH")),
-        // };
 
         Ok(ActionSection { fields, calc })
     }
@@ -536,6 +645,8 @@ impl<'a> Parser<'a> {
             alias,
         })
     }
+
+    /* ----------------------------- GRAPH -------------------------------- */
 
     fn parse_graph_section(&mut self) -> Result<Option<GraphSection>, ParseError> {
         let mut commands = Vec::new();
@@ -611,6 +722,8 @@ impl<'a> Parser<'a> {
 
         Ok(Some(GraphSection { xaxis, commands }))
     }
+
+    /* ------------------------------ TRADE ------------------------------- */
 
     fn parse_trade_section(&mut self) -> Result<Option<TradeSection>, ParseError> {
         self.consume_newlines()?;
@@ -748,9 +861,39 @@ impl<'a> Parser<'a> {
             _ => Ok(None),
         }
     }
+
+    /* ------------------------ TimeSpec helpers -------------------------- */
+
+    fn parse_live_spec(&mut self) -> Result<TimeSpec, ParseError> {
+        self.expect_keyword(Keyword::Tick)?;
+        let interval = self.expect_literal()?; // e.g., "2m"
+        self.expect_keyword(Keyword::For)?;
+        let duration = self.expect_literal()?; // e.g., "10d"
+        Ok(TimeSpec::LiveSpec { interval, duration })
+    }
+
+    fn parse_date_range(&mut self) -> Result<TimeSpec, ParseError> {
+        self.expect_keyword(Keyword::From)?;
+        let from = self.expect_literal()?; // date literal
+        self.expect_keyword(Keyword::To)?;
+        let to = self.expect_literal()?;
+        Ok(TimeSpec::DateRange { from, to })
+    }
 }
 
 /// ----------------------------- Convenience ----------------------------- ///
+
+// Private helper for the method above.
+fn yyyymmdd_to_iso8601_z(s: &str) -> Result<String, &'static str> {
+    if s.len() != 8 || !s.chars().all(|c| c.is_ascii_digit()) {
+        return Err("invalid date literal (expected YYYYMMDD)");
+    }
+    let (y, m, d) = (&s[0..4], &s[4..6], &s[6..8]);
+    if !(m >= "01" && m <= "12") || !(d >= "01" && d <= "31") {
+        return Err("invalid date components in YYYYMMDD");
+    }
+    Ok(format!("{y}-{m}-{d}T00:00:00Z"))
+}
 
 /// Parse a QQL source string and get the AST.
 pub fn parse(src: &str) -> Result<Query, ParseError> {
@@ -765,95 +908,136 @@ mod tests {
     use indoc::indoc;
 
     #[test]
-    fn test_historical_query() {
+    fn test_provider_and_frame() {
         let src = indoc! {r#"
-            FRAME test
-                HISTORICAL 
-                TICKER aapl
+            -- Provider instance
+            PROVIDER aapl_data
+                USING yahoo_finance
+                TICKER AAPL
                 FROM 20220101 TO 20221231
-                PULL field1, field2, field3
-                CALC field1, field2 DIFFERENCE CALLED diff_field
+
+            -- Frame using that provider
+            FRAME aapl
+                PROVIDER aapl_data
+                PULL open, high, low, close
+                CALC open, close DIFFERENCE CALLED oc_diff
         "#};
 
-        // let query = parse(&src.replace("\n", " ")).unwrap();
         let query = parse(src).unwrap();
-        println!("{:#?}", query);
+
+        // provider
+        let p = query.providers.get("aapl_data").expect("provider exists");
+        assert_eq!(p.backend.as_deref(), Some("yahoo_finance"));
+        assert_eq!(p.ticker.as_deref(), Some("AAPL"));
         assert_eq!(
-            query.frame.get("test").unwrap().model.model_type,
-            ModelType::Historical
+            p.time_spec,
+            Some(TimeSpec::DateRange {
+                from: "20220101".into(),
+                to: "20221231".into()
+            })
         );
-        assert_eq!(query.frame.get("test").unwrap().model.ticker, "aapl");
-        assert_eq!(
-            query.frame.get("test").unwrap().model.time_spec,
-            TimeSpec::DateRange {
-                from: "20220101".to_string(),
-                to: "20221231".to_string()
-            }
-        );
-        assert_eq!(
-            query.frame.get("test").unwrap().actions.fields,
-            vec!["field1", "field2", "field3"]
-        );
-        assert!(query.frame.get("test").unwrap().actions.calc.is_some());
-        assert_eq!(
-            query
-                .frame
-                .get("test")
-                .unwrap()
-                .actions
-                .calc
-                .as_ref()
-                .unwrap()[0]
-                .operation,
-            Keyword::Difference
-        );
+
+        // frame
+        let f = query.frame.get("aapl").expect("frame exists");
+        assert_eq!(f.provider, "aapl_data");
+        assert_eq!(f.actions.fields, vec!["open", "high", "low", "close"]);
+        assert!(f
+            .actions
+            .calc
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(|c| c.alias == "oc_diff"));
     }
 
     #[test]
     fn test_multiple_calcs() {
         let src = r#"
-            FRAME test
-                HISTORICAL 
-                TICKER aapl
+            PROVIDER p
+                USING yahoo_finance
+                TICKER AAPL
                 FROM 20220101 TO 20221231
+
+            FRAME test
+                PROVIDER p
                 PULL field1, field2
                 CALC field1, field2 DIFFERENCE CALLED diff_field
                 CALC field1, field2 SUM CALLED sum_field
         "#;
 
-        // let query = parse(&src.replace("\n", " ")).unwrap();
         let query = parse(src).unwrap();
-        assert_eq!(
-            query
-                .frame
-                .get("test")
-                .unwrap()
-                .actions
-                .calc
-                .as_ref()
-                .unwrap()
-                .len(),
-            2
-        );
+        let calcs = query
+            .frame
+            .get("test")
+            .unwrap()
+            .actions
+            .calc
+            .as_ref()
+            .unwrap();
+        assert_eq!(calcs.len(), 2);
     }
-    #[test]
-    fn test_comment_handling() {
-        let src = indoc! {r#"
-        -- This is a comment
-        FRAME test
-            HISTORICAL
-            -- Another comment
-            TICKER AAPL
-            FROM 20220101 TO 20221231
-            -- PULL starts here
-            PULL field1, field2
-        "#};
 
-        let query = parse(src).unwrap();
-        assert_eq!(query.frame.get("test").unwrap().model.ticker, "AAPL");
+    #[test]
+    fn test_comment_handling_minimal() {
+        let src = r#"
+            -- comment before
+            PROVIDER P1
+                USING yahoo_finance
+                TICKER AAPL
+                FROM 20220101 TO 20221231
+            -- frame begins
+            FRAME test
+                PROVIDER P1
+                PULL field1, field2
+        "#;
+
+        let query = match parse(src) {
+            Ok(query) => query,
+            Err(err) => {
+                println!("Failed to parse query: {:?}", err);
+                panic!("Failed to parse query")
+            }
+        };
+
+        assert_eq!(query.frame.get("test").unwrap().provider, "P1");
         assert_eq!(
             query.frame.get("test").unwrap().actions.fields,
             vec!["field1", "field2"]
         );
+    }
+    #[test]
+    fn test_query_build_provider_queries_pairs() {
+        use indoc::indoc;
+        use std::collections::HashMap;
+
+        let src = indoc! {r#"
+            PROVIDER sec_aapl
+                PROVIDER sec_edgar
+                TICKER AAPL
+                FROM 20250104 TO 20251005
+
+            PROVIDER yf_nvda
+                PROVIDER yahoo_finance
+                TICKER NVDA
+                FROM 20250905 TO 20251005
+        "#};
+
+        let q = parse(src).unwrap();
+        let pairs = q.build_provider_queries().unwrap();
+
+        // Convert to map for order-independent assertions
+        let map: HashMap<String, String> = pairs.into_iter().collect();
+
+        assert_eq!(
+            map.get("sec_aapl").unwrap(),
+            "provider sec_edgar search ticker=AAPL date=2025-01-04T00:00:00Z..2025-10-05T00:00:00Z"
+        );
+
+        assert_eq!(
+            map.get("yf_nvda").unwrap(),
+            "provider yahoo_finance search ticker=NVDA date=2025-09-05T00:00:00Z..2025-10-05T00:00:00Z"
+        );
+
+        assert_eq!(map.len(), 2);
     }
 }

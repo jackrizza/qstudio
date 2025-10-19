@@ -1,4 +1,4 @@
-use crate::{parser::TradeSection, utils::trade};
+use crate::parser::TradeSection;
 use polars::prelude::*;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -16,7 +16,7 @@ use uuid::Uuid;
 ///
 /// trade over data will build a single DataFrame
 /// shaped like this:
-///     
+///
 /// /// | timestamp | entry | exit | limit |
 /// /// | --------- | ----- | ---- | ----- |
 ///
@@ -195,6 +195,7 @@ impl Trade {
     }
 }
 
+#[allow(dead_code)]
 pub fn trades_over_data(
     trade_section: &TradeSection,
     frames: &HashMap<String, DataFrame>,
@@ -442,7 +443,7 @@ pub fn trade_graphing_util(
 }
 
 pub fn trade_summary_util(
-    context: TradeSection,
+    _context: TradeSection,
     trades: &DataFrame,
     frame: &DataFrame,
 ) -> TradeSummary {

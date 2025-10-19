@@ -36,6 +36,7 @@ fn a_mod(node: &Fs) -> Option<std::time::SystemTime> {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum FileCmd {
     NewFile { parent: PathBuf },
@@ -113,7 +114,7 @@ impl FolderTree {
             ui.add_space(6.0);
 
             ScrollArea::horizontal()
-                .id_source("filetree-toolbar-scroll")
+                .id_salt("filetree-toolbar-scroll")
                 .max_width(ui.available_width())
                 .max_height(48.0)
                 .show(ui, |ui| {
@@ -243,7 +244,7 @@ impl FolderTree {
 
                 let id = egui::Id::new(("folder", path));
                 let header = CollapsingHeader::new(if is_renaming_here { " " } else { name })
-                    .id_source(id)
+                    .id_salt(id)
                     .default_open(false);
 
                 let collapse = header.show(ui, |ui| {
@@ -525,7 +526,7 @@ pub struct FileTreeUi {
     pub get_initial_listing: bool,
     filetree_aluminum: Arc<Aluminum<(Client, Event)>>,
     tree: FolderTree,
-    only_client: Client,
+    _only_client: Client,
 }
 
 impl FileTreeUi {
@@ -534,7 +535,7 @@ impl FileTreeUi {
             get_initial_listing: false,
             filetree_aluminum: Arc::clone(&filetree_aluminum),
             tree: FolderTree::new(Arc::clone(&filetree_aluminum), only_client.clone()),
-            only_client,
+            _only_client: only_client,
         }
     }
 
@@ -545,7 +546,7 @@ impl FileTreeUi {
     }
 
     /// Draw with a command handler. Pipe the `FileCmd` into your backend.
-    pub fn ui_with(&mut self, ui: &mut egui::Ui, mut on_cmd: impl FnMut(FileCmd)) {
+    pub fn _ui_with(&mut self, ui: &mut egui::Ui, mut on_cmd: impl FnMut(FileCmd)) {
         self.pump_snapshots(ui);
         self.tree.ui_with(ui, move |cmd| on_cmd(cmd));
     }

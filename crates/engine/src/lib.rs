@@ -1,5 +1,4 @@
 mod calculation;
-pub mod controllers;
 mod lexer;
 pub mod parser;
 pub mod utils;
@@ -9,16 +8,26 @@ use parser::Graph;
 
 use std::collections::HashMap;
 
-use parser::{parse, Frame, Query};
+use parser::{parse, Query};
 use polars::frame::DataFrame;
+use serde_json::Value;
 use std::fs;
 
-// use crate::controllers::fundamentals::FundamentalsController;
-use crate::controllers::historical::HistoricalController;
-// use crate::controllers::live::LiveController;
-use crate::parser::{ModelType, Trades};
+use polars::prelude::*;
+use std::io::Cursor;
 
-use crate::controllers::Output;
+use crate::calculation::Calculation;
+use crate::parser::ActionSection;
+
+use crate::parser::Trades;
+
+pub mod output;
+use crate::output::Output;
+
+use provider::{
+    models::Entity,
+    tcp::client::client::{Client, ClientBuilder},
+};
 
 #[derive(Debug, Clone)]
 pub enum EngineStatus {
@@ -27,48 +36,58 @@ pub enum EngineStatus {
     Error(String),
 }
 
-#[derive(Debug, Clone)]
-struct CodeDiff {
-    frames: bool,
-    graph: bool,
-    trades: bool,
-}
-
-impl CodeDiff {
-    pub fn new() -> Self {
-        CodeDiff {
-            frames: false,
-            graph: false,
-            trades: false,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct Engine {
     file_path: String,
     query: Query,
     status: EngineStatus,
+    provider_frames: HashMap<String, DataFrame>,
     frames: HashMap<String, DataFrame>,
-    code_diff: Option<CodeDiff>,
+
+    providers: Client,
+
+    // code_diff: Option<CodeDiff>,
     output: Option<Output>,
     new_output: bool,
+    _for_test_flag: bool,
 }
 
 impl Engine {
-    pub fn new(file_path: &str) -> Result<Self, String> {
+    pub fn new(
+        file_path: &str,
+        provider_addr: &str,
+        is_src_input: Option<bool>,
+    ) -> Result<Self, String> {
+        let is_src_input = is_src_input.unwrap_or(false);
         // let stripped = remove_comments(token_stream);
-        let token_stream =
-            fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {}", e))?;
+
+        let mut token_stream = String::new();
+        if is_src_input {
+            token_stream = file_path.to_string();
+        } else {
+            token_stream =
+                fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {}", e))?;
+        }
+
+        let providers = ClientBuilder::new(provider_addr)
+            .connect()
+            .map_err(|e| format!("Failed to connect to provider: {}", e))?;
+
         match parse(&token_stream) {
             Ok(query) => Ok(Engine {
                 file_path: file_path.to_string(),
                 query,
                 status: EngineStatus::Stopped,
+
+                provider_frames: HashMap::new(),
                 frames: HashMap::new(),
-                code_diff: None,
+
+                providers,
+
+                // code_diff: None,
                 output: None,
                 new_output: false,
+                _for_test_flag: is_src_input,
             }),
             Err(e) => {
                 return Err(format!(
@@ -102,8 +121,14 @@ impl Engine {
 
     pub fn analyze(&self) -> Result<(), String> {
         // Analyze the query and return an error if it fails
-        let file = fs::read_to_string(&self.file_path)
-            .map_err(|e| format!("Failed to read file: {}", e))?;
+        let mut file = String::new();
+
+        if self._for_test_flag {
+            file = self.file_path.to_string();
+        } else {
+            let file = fs::read_to_string(&self.file_path)
+                .map_err(|e| format!("Failed to read file: {}", e))?;
+        }
         match parse(&file) {
             Ok(_) => Ok(()),
             Err(e) => Err(format!(
@@ -119,14 +144,7 @@ impl Engine {
 
         match parse(&code) {
             Ok(query) => {
-                self.code_diff = Some(CodeDiff {
-                    frames: self.query.frame != query.frame,
-                    graph: self.query.graph != query.graph,
-                    trades: self.query.trade != query.trade,
-                });
-
                 self.query = query;
-                log::info!("Code updated, diff: {:?}", self.code_diff);
                 self.run()
             }
             Err(e) => Err(format!(
@@ -138,7 +156,6 @@ impl Engine {
 
     pub async fn restart(&mut self) -> Result<(), String> {
         self.status = EngineStatus::Stopped;
-        self.code_diff = None;
 
         self.run()
     }
@@ -151,45 +168,77 @@ impl Engine {
 
         if let Err(e) = self.analyze() {
             self.status = EngineStatus::Error(e.clone());
-            return Err(e);
+            return Err(format!("Failed to analyze code: {:?}", e));
         }
 
-        let cd = self.code_diff.clone().unwrap_or(CodeDiff::new());
-
         log::info!("Running engine for file: {}", self.file_path);
-        log::info!("Code diff: {:?}", cd);
 
-        let mut result_df = |name: String, r: Result<DataFrame, String>| match r {
-            Ok(df) => {
-                self.frames.insert(name.clone(), df);
-                self.status = EngineStatus::Stopped;
-                // Ok(())
-            }
+        let mut queries = match self.query.build_provider_queries() {
+            Ok(queries) => queries,
             Err(e) => {
-                self.status = EngineStatus::Error(e.clone());
-                log::error!("Failed to execute model: {}", e);
-                // return Err(format!("Failed to execute model: {}", e));
+                self.status = EngineStatus::Error(format!("Failed to build queries: {:?}", e));
+                log::error!("Failed to build queries: {:?}", e);
+                return Err(format!("Failed to build queries: {:?}", e));
             }
         };
 
-        let mut model_gate = |name: String, frame: &Frame, model_type: ModelType| match model_type {
-            ModelType::Live => {
-                log::info!("Live model type is not supported yet");
-            }
-            ModelType::Historical => {
-                let controller = HistoricalController::new(frame, None);
-                let df = controller.execute();
-                result_df(name.clone(), df);
-            }
-            ModelType::Fundamental => {
-                log::info!("Fundamental model type is not supported yet");
+        let get_data_result = match self.providers.get_data::<Vec<Entity>>(queries.clone()) {
+            Ok(data) => data,
+            Err(e) => {
+                self.status = EngineStatus::Error(format!("Failed to get data: {}", e));
+                log::error!("Failed to get data: {} for {:#?}", e, queries);
+                return Err(format!("Failed to get data: {} for {:#?}", e, queries));
             }
         };
+        for (name, entity) in get_data_result {
+            let data: Vec<Value> = match serde_json::from_str(&entity[0].data) {
+                Ok(data) => data,
+                Err(e) => {
+                    self.status = EngineStatus::Error(format!("Failed to deserialize data: {}", e));
+                    log::error!(
+                        "Failed to deserialize data: {} for {:#?}",
+                        e,
+                        entity[0].data
+                    );
+                    return Err(format!(
+                        "Failed to deserialize data: {} for {:#?}",
+                        e, entity[0].data
+                    ));
+                }
+            };
+            let df = match json_values_to_df(&data) {
+                Ok(df) => df,
+                Err(e) => {
+                    self.status = EngineStatus::Error(format!("Failed to deserialize data: {}", e));
+                    log::error!("Failed to deserialize data: {} for {:#?}", e, data);
+                    return Err(format!("Failed to deserialize data: {} for {:#?}", e, data));
+                }
+            };
 
-        if !cd.frames {
-            for (name, frame) in self.query.frame.iter() {
-                model_gate(name.clone(), frame, frame.model.model_type.clone());
-            }
+            self.provider_frames.insert(name, df);
+        }
+
+        for (name, frame) in self.query.frame.iter() {
+            let p = match self.provider_frames.get(&frame.provider) {
+                Some(provider) => provider,
+                None => {
+                    return Err(format!(
+                        "Provider : {} not found for frame: {}",
+                        frame.provider, name
+                    ))
+                }
+            };
+
+            let provider = match action_over_data(&frame.actions, p.clone()) {
+                Ok(provider) => provider,
+                Err(e) => {
+                    log::error!("Failed to apply actions for frame: {}", e);
+                    return Err(format!("Failed to apply actions for frame: {}", e));
+                }
+            };
+
+            println!("Adding provider_frame: {}", provider.head(None));
+            self.frames.insert(name.clone(), provider.clone());
         }
 
         let mut graph: Option<Graph> = None;
@@ -220,7 +269,7 @@ impl Engine {
         }
 
         self.status = EngineStatus::Stopped;
-        self.code_diff = None;
+        // self.code_diff = None;
 
         log::info!("Engine run completed for file: {}", self.file_path);
         if let Some(_) = &graph {
@@ -271,34 +320,104 @@ impl Engine {
     }
 }
 
+pub fn json_values_to_df(values: &[Value]) -> std::io::Result<DataFrame> {
+    // values should be an array of JSON objects (or nested; Polars can hold Struct/Lists)
+    let bytes = serde_json::to_vec(values)?;
+    let df = JsonReader::new(Cursor::new(bytes))
+        // Use `JsonFormat::Json` for a JSON array; use `JsonFormat::JsonLines` for NDJSON
+        .with_json_format(JsonFormat::Json)
+        // .infer_schema_len(Some(1_000)) // optional: how many rows to scan for schema
+        .finish()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    Ok(df)
+}
+
+pub fn action_over_data(action: &ActionSection, df: DataFrame) -> Result<DataFrame, String> {
+    let mut df = df.clone();
+    let field = action.fields.clone();
+    let timestamp = df
+        .column("timestamp")
+        .map_err(|e| format!("Failed to get timestamp column: {}", e))?
+        .clone();
+
+    let selected_fields = df
+        .select(field.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+        .map_err(|e| format!("Failed to select fields: {}", e))?;
+
+    let mut columns = vec![timestamp];
+    columns.extend_from_slice(selected_fields.get_columns());
+
+    // If calc is None, just return the timestamp + selected fields
+    let Some(calcs) = &action.calc else {
+        let result_df =
+            DataFrame::new(columns).map_err(|e| format!("Failed to create DataFrame: {}", e))?;
+        return Ok(result_df);
+    };
+
+    // Otherwise, run each Calc and append the results
+    for calc in calcs {
+        let calculation = Calculation::new(calc.clone());
+
+        let calc_df = match calculation.calculate(&df) {
+            Ok(result) => result,
+            Err(e) => {
+                log::error!("Failed to calculate: {}", e);
+                return Err(format!("Failed to calculate: {}", e));
+            }
+        };
+        // Append calc_df columns to the main DataFrame
+        for col in calc_df.get_columns() {
+            df.with_column(col.clone())
+                .map_err(|e| format!("Failed to append column: {}", e))?;
+        }
+        columns.extend_from_slice(calc_df.get_columns());
+    }
+
+    let result_df =
+        DataFrame::new(columns).map_err(|e| format!("Failed to create DataFrame: {}", e))?;
+    Ok(result_df)
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::controllers::Output;
     use indoc::indoc;
 
     use super::Engine;
 
     #[test]
     fn test_engine() {
-        let src = indoc! {r#"
+        let src = r#"
+
+            PROVIDER aapl_data
+                PROVIDER yahoo_finance
+                TICKER aapl
+                FROM 20200101 TO 20250901
+
             FRAME test
-                HISTORICAL 
-                TICKER aapl 
-                FROM 20220101 TO 20221231
+                PROVIDER aapl_data
                 PULL open, high, low, close
                 CALC open, close DIFFERENCE CALLED diff_field
 
-            TRADE 
+            TRADE
                 STOCK
                 ENTRY test.open, test.close, 0.5
                 EXIT test.high, test.low, 0.5
                 LIMIT 0.1
                 HOLD 14
-        "#};
+        "#;
 
-        let mut engine = Engine::new(&src).unwrap();
+        let mut engine = Engine::new(&src, "127.0.0.1:7000", Some(true)).unwrap();
         println!("Engine : {:#?}", engine.query());
 
-        assert_eq!(engine.run().is_ok(), true);
+        match engine.run() {
+            Ok(_) => {
+                println!("Engine run successfully");
+                assert_eq!(engine.frames.get("test").is_some(), true);
+            }
+            Err(e) => {
+                println!("Engine run failed: {}", e);
+                assert_eq!(false, true);
+            }
+        }
     }
 }

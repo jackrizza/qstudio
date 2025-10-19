@@ -1,6 +1,6 @@
 use crate::Event;
 use crate::EventResponse;
-use engine::controllers::Output;
+use engine::output::Output;
 use serde::{Deserialize, Serialize};
 
 use crossbeam_channel::Sender;

@@ -1,11 +1,5 @@
 use engine::Engine;
-use events::{
-    events::{
-        engine::EngineEvent,
-        notifications::{NotificationEvent, NotificationKind},
-    },
-    Event, EventResponse,
-};
+use events::{events::engine::EngineEvent, EventResponse};
 use std::{collections::HashMap, fs};
 
 pub fn handle_engine_event(
@@ -18,7 +12,7 @@ pub fn handle_engine_event(
                 log::warn!("Engine for file {} is already running.", filename);
                 let _ = engine.run();
             } else {
-                match Engine::new(&filename) {
+                match Engine::new(&filename, "127.0.0.1:7000", None) {
                     Ok(mut engine) => {
                         let _ = engine.run();
                         engines.insert(filename.clone(), engine);
@@ -94,7 +88,12 @@ pub fn handle_engine_event(
             match fs::write(&filename, content) {
                 Ok(_) => {
                     log::info!("File saved successfully: {}", filename);
-                    handle_engine_event(EngineEvent::UpdateCode { filename: filename.clone() }, engines)
+                    handle_engine_event(
+                        EngineEvent::UpdateCode {
+                            filename: filename.clone(),
+                        },
+                        engines,
+                    )
                 }
                 Err(e) => {
                     log::error!("Failed to save file {}: {}", filename, e);
@@ -108,11 +107,17 @@ pub fn handle_engine_event(
         }
         EngineEvent::UpdateCode { filename } => {
             if let Some(engine) = engines.get_mut(&filename) {
-                log::info!("Updating code for engine associated with file: {}", filename);
+                log::info!(
+                    "Updating code for engine associated with file: {}",
+                    filename
+                );
                 match engine.update_code() {
                     Ok(_) => {
                         log::info!("Code updated successfully for file: {}", filename);
-                        EventResponse::Info(format!("Code updated successfully for file: {}", filename))
+                        EventResponse::Info(format!(
+                            "Code updated successfully for file: {}",
+                            filename
+                        ))
                     }
                     Err(e) => {
                         log::error!("Failed to update code for file {}: {}", filename, e);

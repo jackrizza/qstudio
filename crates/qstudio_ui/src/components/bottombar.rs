@@ -5,18 +5,15 @@ impl BottomBar {
         BottomBar
     }
 
-    pub fn ui(&mut self, ctx: &egui::Context) {
+    pub fn _ui(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("bottom_bar")
-            .frame(
-                egui::Frame::none()
-                    .inner_margin(8.0)
-                    .outer_margin(0.0)
-                    .fill(if ctx.style().visuals.dark_mode {
-                        theme::GITHUB_DARK.crust
-                    } else {
-                        theme::GITHUB_LIGHT.crust
-                    }),
-            )
+            .frame(egui::Frame::NONE.inner_margin(8.0).outer_margin(0.0).fill(
+                if ctx.style().visuals.dark_mode {
+                    theme::GITHUB_DARK.crust
+                } else {
+                    theme::GITHUB_LIGHT.crust
+                },
+            ))
             .resizable(false)
             .show(ctx, |ui| {
                 ui.set_max_height(18.0);

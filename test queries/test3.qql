@@ -1,14 +1,20 @@
-FRAME watch
-	HISTORICAL
+PROVIDER watch_data
+	PROVIDER yahoo_finance
     TICKER ^vix
     FROM 20100101 TO 20250801
+
+PROVIDER action_data
+	PROVIDER yahoo_finance
+    TICKER spy
+    FROM 20200101 TO 20250801
+
+FRAME watch
+    PROVIDER watch_data
     PULL open, close, low, high
 	CALC 50 CONSTANT CALLED index_level
 
 FRAME action
-	HISTORICAL
-    TICKER spy
-    FROM 20200101 TO 20250801
+	PROVIDER action_data
     PULL open, close, low, high
 	CALC open VOLATILITY CALLED open_vol
 	CALC open DOUBLE_VOLATILITY CALLED open_double_vol

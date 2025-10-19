@@ -41,6 +41,9 @@ pub enum Keyword {
     LinearRegression,
     Constant,
     OverFrame,
+    Provider,
+    Using,
+    Param,
 }
 
 impl Keyword {
@@ -83,6 +86,9 @@ impl Keyword {
             "DOUBLE_VOLATILITY" => Some(DoubleVolatility),
             "CONSTANT" => Some(Constant),
             "OVERFRAME" => Some(OverFrame),
+            "PROVIDER" => Some(Provider),
+            "USING" => Some(Using),
+            "PARAM" => Some(Param),
             _ => None,
         }
     }
@@ -92,7 +98,6 @@ impl Keyword {
 pub enum TokenKind {
     Keyword(Keyword),
     Identifier(String),
-    Date(String),
     Interval(String),
     Literal(String),
     Comma,

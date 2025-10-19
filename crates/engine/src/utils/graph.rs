@@ -9,7 +9,6 @@ pub fn graph_over_data(
 ) -> Result<Graph, String> {
     let mut data: Vec<DrawType> = Vec::new();
     let mut axis_labels: Vec<String> = vec![];
-    let xaxis = graph_section.xaxis.as_str();
 
     for command in &graph_section.commands {
         let df = frames
@@ -46,12 +45,7 @@ pub fn graph_over_data(
                 }
             }
 
-            DrawCommand::Bar { name, y, .. } => {
-                let values = extract_f64_column(df, y)?
-                    .into_iter()
-                    .map(|v| v.unwrap_or(0.0))
-                    .collect::<Vec<_>>();
-
+            DrawCommand::Bar { name, .. } => {
                 let x: Vec<f64> = x_series.iter().map(|x| x.unwrap_or(0) as f64).collect();
                 data.push(DrawType::Bar(
                     format!("{} - {}", command.get_frame(), name.clone()),

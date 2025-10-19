@@ -97,7 +97,6 @@ impl QStudioServer {
     /// Thread 2: File-system worker: consumes fs events and may respond back to server.
     pub fn spawn_fs_listener(&self) -> JoinHandle<()> {
         let rx = self.fs_rx.clone();
-        let tx_address = self.args.tx_address.clone();
         let root_dir = self.args.root_dir.clone();
 
         thread::spawn(move || {
@@ -141,7 +140,6 @@ impl QStudioServer {
     /// Thread 3: Dock worker: consumes dock events and sends UI updates back to server.
     pub fn spawn_dock_listener(&self) -> JoinHandle<()> {
         let rx = self.dock_rx.clone();
-        let tx_address = self.args.tx_address.clone();
 
         thread::spawn(move || {
             log::info!("Starting Dock Listener...");

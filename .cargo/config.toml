@@ -1,0 +1,10 @@
+# .cargo/config.toml
+
+# 1) Always embed the macOS Frameworks dir into the binary rpath
+[target.'cfg(target_os = "macos")']
+rustflags = ["-C", "link-arg=-Wl,-rpath,/usr/local/Frameworks"]
+
+# 2) Tell PyO3 which Python to use at build time
+[env]
+# For Homebrew Python:
+PYO3_PYTHON = { value = "/usr/local/bin/python3.12", force = true }

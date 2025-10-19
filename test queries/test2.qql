@@ -1,19 +1,22 @@
 -- This is a test script
 
-FRAME first
-	HISTORICAL
-	TICKER aapl
+PROIVDER aapl_data
+	PROVIDER yahoo_finance
+    TICKER aapl
 	FROM 20200101 TO 20250801
+
+FRAME first
+    PROVIDER aapl_data
 	PULL open, close, low, high
 
 	CALC open VOLATILITY CALLED open_vol
 	CALC open_vol_pos LINEAR_REGRESSION CALLED lr_open_vol_pos
 	CALC open_vol_neg LINEAR_REGRESSION CALLED lr_open_vol_neg
-	
+
 	CALC open DOUBLE_VOLATILITY CALLED double_open_vol
 	CALC double_open_vol_pos LINEAR_REGRESSION CALLED lr_double_open_vol_pos
 	CALC double_open_vol_neg LINEAR_REGRESSION CALLED lr_double_open_vol_neg
-	
+
 	CALC open SMA CALLED open_sma
 	CALC open_sma LINEAR_REGRESSION CALLED lr_open_sma
 
@@ -24,11 +27,8 @@ GRAPH
 
 	LINE lr_open_vol_pos FOR first
 	LINE lr_open_vol_neg FOR first
-	
+
 	LINE lr_double_open_vol_pos FOR first
 	LINE lr_double_open_vol_neg FOR first
 
 	LINE lr_open_sma FOR first
-
-
-

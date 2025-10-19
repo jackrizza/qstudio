@@ -8,7 +8,7 @@ use std::sync::Arc;
 pub struct LeftBar {
     aluminum: Arc<Aluminum<(Client, Event)>>,
     pub sidebar: SideBar,
-    client: Client,
+    _client: Client,
 }
 
 impl LeftBar {
@@ -16,7 +16,7 @@ impl LeftBar {
         LeftBar {
             sidebar: SideBar::new(Arc::clone(&aluminum), client.clone()),
             aluminum,
-            client,
+            _client: client,
         }
     }
     pub fn ui(&mut self, ctx: &egui::Context) {
@@ -25,7 +25,7 @@ impl LeftBar {
             .min_width(self.sidebar.width())
             .max_width(self.sidebar.width())
             .frame(
-                egui::Frame::none()
+                egui::Frame::NONE
                     .inner_margin(0.0)
                     .outer_margin(0.0)
                     .fill(theme::get_mode_theme(ctx).crust),

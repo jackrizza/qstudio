@@ -1,9 +1,12 @@
 -- This is a test script
 -- Tell engine where to pull data from
-FRAME aapl
-	HISTORICAL
+PROVIDER appl_data
+	PROVIDER yahoo_finance
 	TICKER aapl
 	FROM 20200101 TO 20250901
+
+FRAME aapl
+	PROVIDER appl_data
 	PULL open, close, low, high
 	CALC open, close DIFFERENCE CALLED oc_diff
 	CALC high, low DIFFERENCE CALLED hl_diff
@@ -16,8 +19,8 @@ GRAPH
 
 	CANDLE open, high, low, close FOR aapl
 	
-	LINE oc_diff FOR aapl
-	LINE hl_diff FOR aapl
+--	LINE oc_diff FOR aapl
+--	LINE hl_diff FOR aapl
 
 
 
