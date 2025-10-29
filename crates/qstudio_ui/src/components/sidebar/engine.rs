@@ -121,6 +121,17 @@ impl EngineItem {
                 .clicked()
             {
                 // Handle view button click
+                self.ui_aluminum
+                    .frontend_tx
+                    .send((
+                        self.only_client.clone(),
+                        Event::UiEvent(events::UiEvent::ShowTables {
+                            name: self.name.clone(),
+                        }),
+                    ))
+                    .unwrap_or_else(|e| {
+                        log::error!("Failed to send ShowTrades event: {}", e);
+                    });
             }
 
             if ui

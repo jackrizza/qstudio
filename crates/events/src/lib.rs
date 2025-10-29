@@ -44,6 +44,7 @@ pub enum UiEvent {
     NewOutputFromServer { filename: String, output: Output },
     ShowGraph { name: String },
     ShowTrades { name: String },
+    ShowTables { name: String },
 }
 
 impl std::fmt::Debug for UiEvent {
@@ -85,6 +86,7 @@ impl std::fmt::Debug for UiEvent {
             }
             UiEvent::ShowGraph { name } => write!(f, "UiEvent::ShowGraph {{ name: {} }}", name),
             UiEvent::ShowTrades { name } => write!(f, "UiEvent::ShowTrades {{ name: {} }}", name),
+            UiEvent::ShowTables { name } => write!(f, "UiEvent::ShowTables {{ name: {} }}", name),
         }
     }
 }

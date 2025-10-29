@@ -9,6 +9,7 @@ pub enum DockEvent {
     Error { message: String },
     UpdateOutput { name: String, content: Output },
     ShowTrades { name: String },
+    ShowTables { name: String },
 }
 
 impl DockEvent {
@@ -39,6 +40,11 @@ impl DockEvent {
             DockEvent::ShowTrades { name } => {
                 log::info!("Showing trades for: {}", name);
                 // Implement trades showing logic here
+                self.clone()
+            }
+            DockEvent::ShowTables { name } => {
+                log::info!("Showing tables for: {}", name);
+                // Implement tables showing logic here
                 self.clone()
             }
 

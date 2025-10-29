@@ -6,6 +6,7 @@ use egui_dock::{
 };
 use engine::output::Output;
 use std::sync::Arc;
+use table::DrawTablesUi;
 
 use busbar::Aluminum;
 use events::Event;
@@ -48,8 +49,8 @@ pub enum PaneType {
         draw_graph: Option<graph::DrawGraphUi>,
     },
     TableView {
-        title: String,
-        data: Receiver<Output>,
+        name: String,
+        draw_table: Option<table::DrawTablesUi>,
     },
     TradeView {
         title: String,
@@ -69,7 +70,7 @@ impl PaneType {
             PaneType::Blank => "Blank".to_string(),
             PaneType::CodeEditor { file_name, .. } => format!("Code Editor - {}", file_name),
             PaneType::GraphView { title, .. } => format!("Graph View - {}", title),
-            PaneType::TableView { title, .. } => format!("Table View - {}", title),
+            PaneType::TableView { name, .. } => format!("Table View - {}", name),
             PaneType::TradeView { title, .. } => format!("Trade View - {}", title),
             PaneType::FlowCharView { title, .. } => format!("Flow Chart View - {}", title),
         }
@@ -163,6 +164,13 @@ impl TabViewer for MyTabViewer {
                     *trade_summary = Some(trade::TradeSummaryUi::new(summary.clone()));
                 }
                 trade_summary.as_mut().unwrap().ui(ui);
+            }
+            PaneType::TableView {
+                name, draw_table, ..
+            } => {
+                if let Some(draw_table) = draw_table {
+                    draw_table.ui(ui);
+                }
             }
             _ => {
                 ui.label("Unsupported pane type");
@@ -265,6 +273,19 @@ impl PaneDock {
                             title: name,
                             summary: rx,
                             trade_summary: None,
+                        });
+                        updated = true;
+                    }
+                    events::events::dock::DockEvent::ShowTables { name } => {
+                        log::info!("Showing tables for: {}", name);
+                        let (tx, rx) = crossbeam_channel::unbounded::<Output>();
+                        self.panel_channels
+                            .entry(name.clone())
+                            .or_insert_with(Vec::new)
+                            .push((tx, rx.clone()));
+                        self.dock_state.push_to_focused_leaf(PaneType::TableView {
+                            name,
+                            draw_table: Some(DrawTablesUi::new(rx)),
                         });
                         updated = true;
                     }

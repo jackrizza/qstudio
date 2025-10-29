@@ -1,6 +1,7 @@
 mod calculation;
 mod lexer;
 pub mod parser;
+pub mod runtime;
 pub mod utils;
 
 // Import Graph type
@@ -15,9 +16,6 @@ use std::fs;
 
 use polars::prelude::*;
 use std::io::Cursor;
-
-use crate::calculation::Calculation;
-use crate::parser::ActionSection;
 
 use crate::parser::Trades;
 
@@ -50,6 +48,7 @@ pub struct Engine {
     output: Option<Output>,
     new_output: bool,
     _for_test_flag: bool,
+    rt: runtime::GpuRuntime,
 }
 
 impl Engine {
@@ -73,6 +72,13 @@ impl Engine {
             .connect()
             .map_err(|e| format!("Failed to connect to provider: {}", e))?;
 
+        let rt = match pollster::block_on(async move {
+            runtime::GpuRuntime::new().await.map_err(|e| e.to_string())
+        }) {
+            Ok(rt) => rt,
+            Err(e) => return Err(e),
+        };
+
         match parse(&token_stream) {
             Ok(query) => Ok(Engine {
                 file_path: file_path.to_string(),
@@ -88,6 +94,7 @@ impl Engine {
                 output: None,
                 new_output: false,
                 _for_test_flag: is_src_input,
+                rt,
             }),
             Err(e) => {
                 return Err(format!(
@@ -126,7 +133,7 @@ impl Engine {
         if self._for_test_flag {
             file = self.file_path.to_string();
         } else {
-            let file = fs::read_to_string(&self.file_path)
+            file = fs::read_to_string(&self.file_path)
                 .map_err(|e| format!("Failed to read file: {}", e))?;
         }
         match parse(&file) {
@@ -190,6 +197,7 @@ impl Engine {
                 return Err(format!("Failed to get data: {} for {:#?}", e, queries));
             }
         };
+
         for (name, entity) in get_data_result {
             let data: Vec<Value> = match serde_json::from_str(&entity[0].data) {
                 Ok(data) => data,
@@ -229,7 +237,20 @@ impl Engine {
                 }
             };
 
-            let provider = match action_over_data(&frame.actions, p.clone()) {
+            // let provider = match action_over_data(&frame.actions, p.clone()) {
+            //     Ok(provider) => provider,
+            //     Err(e) => {
+            //         log::error!("Failed to apply actions for frame: {}", e);
+            //         return Err(format!("Failed to apply actions for frame: {}", e));
+            //     }
+            // };
+
+            println!("Time for th gpu");
+            let provider = match utils::action::action_over_data_gpu(
+                &frame.actions,
+                p.clone(),
+                &mut self.rt,
+            ) {
                 Ok(provider) => provider,
                 Err(e) => {
                     log::error!("Failed to apply actions for frame: {}", e);
@@ -237,7 +258,7 @@ impl Engine {
                 }
             };
 
-            println!("Adding provider_frame: {}", provider.head(None));
+            println!("Adding provider_frame: {}", provider.head(Some(40)));
             self.frames.insert(name.clone(), provider.clone());
         }
 
@@ -332,55 +353,8 @@ pub fn json_values_to_df(values: &[Value]) -> std::io::Result<DataFrame> {
     Ok(df)
 }
 
-pub fn action_over_data(action: &ActionSection, df: DataFrame) -> Result<DataFrame, String> {
-    let mut df = df.clone();
-    let field = action.fields.clone();
-    let timestamp = df
-        .column("timestamp")
-        .map_err(|e| format!("Failed to get timestamp column: {}", e))?
-        .clone();
-
-    let selected_fields = df
-        .select(field.iter().map(|s| s.as_str()).collect::<Vec<_>>())
-        .map_err(|e| format!("Failed to select fields: {}", e))?;
-
-    let mut columns = vec![timestamp];
-    columns.extend_from_slice(selected_fields.get_columns());
-
-    // If calc is None, just return the timestamp + selected fields
-    let Some(calcs) = &action.calc else {
-        let result_df =
-            DataFrame::new(columns).map_err(|e| format!("Failed to create DataFrame: {}", e))?;
-        return Ok(result_df);
-    };
-
-    // Otherwise, run each Calc and append the results
-    for calc in calcs {
-        let calculation = Calculation::new(calc.clone());
-
-        let calc_df = match calculation.calculate(&df) {
-            Ok(result) => result,
-            Err(e) => {
-                log::error!("Failed to calculate: {}", e);
-                return Err(format!("Failed to calculate: {}", e));
-            }
-        };
-        // Append calc_df columns to the main DataFrame
-        for col in calc_df.get_columns() {
-            df.with_column(col.clone())
-                .map_err(|e| format!("Failed to append column: {}", e))?;
-        }
-        columns.extend_from_slice(calc_df.get_columns());
-    }
-
-    let result_df =
-        DataFrame::new(columns).map_err(|e| format!("Failed to create DataFrame: {}", e))?;
-    Ok(result_df)
-}
-
 #[cfg(test)]
 mod tests {
-    use indoc::indoc;
 
     use super::Engine;
 

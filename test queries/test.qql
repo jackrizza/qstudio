@@ -19,8 +19,8 @@ GRAPH
 
 	CANDLE open, high, low, close FOR aapl
 	
---	LINE oc_diff FOR aapl
---	LINE hl_diff FOR aapl
+	LINE oc_diff FOR aapl
+	LINE hl_diff FOR aapl
 
 
 

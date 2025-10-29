@@ -1,0 +1,64 @@
+extern crate engine;
+
+use engine::Engine;
+
+fn main() {
+    let src = r#"
+    PROVIDER watch_data
+        PROVIDER yahoo_finance
+        TICKER ^vix
+        FROM 20100101 TO 20250801
+
+        PROVIDER action_data
+	PROVIDER yahoo_finance
+            TICKER spy
+            FROM 20200101 TO 20250801
+
+     FRAME watch
+        PROVIDER watch_data
+        PULL open, close, low, high
+        CALC 50 CONSTANT CALLED index_level
+
+    FRAME action
+        PROVIDER action_data
+        PULL open, close, low, high
+        CALC open VOLATILITY CALLED open_vol
+        CALC open DOUBLE_VOLATILITY CALLED open_double_vol
+    	CALC open_vol_pos LINEAR_REGRESSION CALLED lr_open_vol_pos
+    	CALC open_vol_neg LINEAR_REGRESSION CALLED lr_open_vol_neg
+    	CALC open_double_vol_neg LINEAR_REGRESSION CALLED lr_open_double_vol_neg
+
+
+    GRAPH
+        XAXIS watch
+        --	CANDLE open, high, low, close FOR watch
+    	LINE high FOR watch
+    	LINE index_level FOR watch
+
+        CANDLE open, high, low, close FOR action
+        LINE lr_open_vol_pos FOR action
+        LINE lr_open_vol_neg FOR action
+        LINE lr_open_double_vol_neg FOR action
+
+    TRADE
+        STOCK
+        OVERFRAME action
+        ENTRY watch.index_level, watch.low, 0.1
+        EXIT action.high, action.lr_open_vol_pos, 0.1
+        LIMIT 0.15
+        HOLD 365
+
+    "#;
+
+    let mut engine = Engine::new(&src, "127.0.0.1:7000", Some(true)).unwrap();
+    println!("Engine : {:#?}", engine.query());
+
+    match engine.run() {
+        Ok(_) => {
+            println!("Engine run successfully");
+        }
+        Err(e) => {
+            eprintln!("Engine run failed: {}", e);
+        }
+    }
+}

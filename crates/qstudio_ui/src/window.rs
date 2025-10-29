@@ -256,6 +256,26 @@ impl QStudioApp {
                                             );
                                         });
                                 }
+                                UiEvent::ShowTables { name } => {
+                                    log::info!("Handling ShowTrades for: {}", name);
+                                    // Implement the logic to show the trades in the UI
+                                    aluminum_clone
+                                        .dock_tx
+                                        .send((
+                                            client,
+                                            Event::DockEvent(
+                                                events::events::dock::DockEvent::ShowTables {
+                                                    name,
+                                                },
+                                            ),
+                                        ))
+                                        .unwrap_or_else(|e| {
+                                            log::error!(
+                                                "Failed to forward ShowTrades event: {}",
+                                                e
+                                            );
+                                        });
+                                }
 
                                 UiEvent::NewOutputFromServer { filename, output } => {
                                     log::info!(

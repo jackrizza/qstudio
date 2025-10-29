@@ -18,7 +18,7 @@ egui_code_editor = { git = "https://github.com/jackrizza/egui_code_editor", bran
 theme = { path = "../theme" }
 engine = { path = "../engine" }
 tokio = { version = "1.47.1", features = ["full"] }
-
+time = "0.3.19"
 polars = { version = "0.49", features = ["lazy"] }
 egui_plot = "0.33.0"
 egui_commonmark = "0.21.1"
